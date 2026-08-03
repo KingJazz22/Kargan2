@@ -1,0 +1,9 @@
+pandas
+numpy
+yfinance
+matplotlib
+python-dotenv
+alpaca-py
+scikit-learn
+scipy
+pyarrow
