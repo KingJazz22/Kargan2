@@ -99,6 +99,28 @@ def submit_market_buy(symbol: str, qty: float, wait_fill_seconds: int = 30) -> d
     return {"filled": False}
 
 
+def submit_market_sell(symbol: str, qty: float, wait_fill_seconds: int = 30) -> dict:
+    """Closes a long position at market -- used by PCSE's take-profit, which
+    is checked periodically (has price touched the level since last check?)
+    rather than resting as a second order alongside the stop-loss. Avoids
+    ever having two simultaneous exit orders committing the same shares."""
+    from alpaca.trading.requests import MarketOrderRequest
+    from alpaca.trading.enums import OrderSide, TimeInForce
+
+    client = trading_client()
+    order = client.submit_order(MarketOrderRequest(
+        symbol=symbol, qty=round(qty, 4), side=OrderSide.SELL, time_in_force=TimeInForce.DAY,
+    ))
+
+    deadline = time.time() + wait_fill_seconds
+    while time.time() < deadline:
+        fetched = client.get_order_by_id(order.id)
+        if fetched.status == "filled":
+            return {"filled": True, "fill_price": float(fetched.filled_avg_price), "qty": float(fetched.filled_qty)}
+        time.sleep(2)
+    return {"filled": False}
+
+
 def get_order_status(order_id: str) -> dict:
     """Used to reconcile per-strategy lots: Alpaca nets positions per symbol,
     so when two strategies hold the same symbol, checking whether a SPECIFIC

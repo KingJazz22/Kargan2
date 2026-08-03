@@ -1,19 +1,21 @@
 """Unified live/paper trading runner: Breakout Hunter (daily) + Multi-Timeframe
-RSI+Stochastic v2 (4H execution + Daily confirm, TSL-only exit) sharing ONE
-Alpaca paper account -- the two validated strategies from this project, same
-scope as the combined portfolio backtest (backtest_combined.py, FINDINGS_COMBINED.md).
+RSI+Stochastic v2 (4H execution + Daily confirm, TSL-only exit, VWAP(200)
+trend filter) + PCSE (4H, SL=12x/TP=BB(3.0std)) sharing ONE Alpaca paper
+account -- the three validated strategies from this project (Grid-Martingale
+deliberately excluded -- its own FINDINGS_GRID_MARTINGALE.md says "still not
+ready for live paper trading").
 
-Run cadence differs from the original single-strategy live_breakout.py:
+Run cadence:
   - Breakout Hunter only needs checking once per day (its signal is decided
     from the completed daily bar).
-  - MTF needs checking roughly every 4 hours during market hours, since its
-    execution timeframe is 4H bars -- running once/day at open would miss
-    most of its signal timing.
+  - MTF and PCSE need checking roughly every 4 hours during market hours,
+    since their execution timeframe is 4H bars -- running once/day at open
+    would miss most of their signal timing.
   Schedule this script to run every ~2 hours during market hours (e.g.
-  9:35, 11:35, 13:35, 15:35 ET) via Task Scheduler. Breakout Hunter's daily
-  logic uses a cursor to only act once per day even though the script runs
-  more often; MTF's logic uses a cursor to only act on a newly-completed 4H
-  bar since the last run.
+  9:35, 11:35, 13:35, 15:35 ET) -- on Railway via railway_runner.py's internal
+  scheduler. Breakout Hunter's daily logic uses a cursor to only act once per
+  day even though the script runs more often; MTF/PCSE's logic uses a cursor
+  to only act on a newly-completed 4H bar since the last run.
 
 Real-account constraint the backtest didn't have: Alpaca nets positions per
 SYMBOL at the account level -- it will only ever report ONE combined qty for
@@ -34,16 +36,26 @@ Usage:
 import argparse
 from datetime import datetime
 
+import pandas as pd
+
 import broker_alpaca as broker
 import strategy_breakout as strat_bo
 import strategy_mtf as strat_mtf
+import strategy_pcse_final as strat_pcse
 from basket import US_SYMBOLS
 from state_store import load_state, save_state
 from test_mtf_oos_symbols import OOS_US_SYMBOLS
 
 SYMBOLS = US_SYMBOLS + OOS_US_SYMBOLS  # the 40 symbols both edges were validated on
 RISK_PCT = 0.01
-MAX_CONCURRENT_POSITIONS = 10  # across BOTH strategies combined
+MAX_CONCURRENT_POSITIONS = 10  # across ALL THREE strategies combined
+
+# PCSE was only validated on basket.US_SYMBOLS (20 symbols, the in-sample half
+# of SYMBOLS above) -- NOT the OOS_US_SYMBOLS half, and not extended here
+# beyond what FINDINGS_CANDLE_PROB.md actually tested.
+PCSE_SYMBOLS = US_SYMBOLS
+PCSE_BARS_NEEDED = strat_pcse.entry_strat.TRAIN_BARS + strat_pcse.entry_strat.TEST_BARS  # 1750
+PCSE_LOOKBACK_DAYS = 800  # comfortably covers 1750+ 4H bars (~3/day for equities)
 
 MTF_PARAMS = {
     "long_only": True, "htf_bar_hours": 24, "tsl_only_exit": True,
@@ -202,6 +214,78 @@ def run_mtf(state, equity, args):
                 open_count += 1
 
 
+def run_pcse(state, equity, args):
+    """PCSE (Probabilistic Candle-State Edge), 4H, long-only, SL=12x entry-time
+    return-stdev (fixed) / TP=touch of the 20-bar Bollinger upper band at
+    3.0std (moving target). Unlike breakout/mtf's single resting stop, the
+    take-profit here is checked explicitly each run rather than kept as a
+    second resting order -- avoids ever having two exit orders simultaneously
+    committing the same shares. This means TP precision is bounded by this
+    runner's check cadence (~every 2h), not truly intrabar like the backtest;
+    acceptable given the exit is deliberately wide/patient (FINDINGS_CANDLE_PROB.md),
+    not a tight/reactive design this would meaningfully degrade.
+
+    Each run fetches exactly PCSE_BARS_NEEDED (TRAIN_BARS+TEST_BARS) 4H bars
+    and fits ONE walk-forward fold on them -- methodologically identical to
+    any single fold in the validated backtest (each fold trains independently
+    on only its own preceding window, no cross-fold pooling), so this isn't a
+    reduced-rigor shortcut, just the minimum computation needed to guarantee
+    the latest bar always gets a valid (non-NaN) prediction.
+    """
+    print("\n--- PCSE (4H, SL=12x / TP=BB(3.0std)) ---")
+    bars = broker.fetch_4h_bars(PCSE_SYMBOLS, lookback_days=PCSE_LOOKBACK_DAYS)
+    open_count = len(state["positions"])
+
+    for symbol in PCSE_SYMBOLS:
+        if symbol not in bars:
+            continue
+        df = bars[symbol]
+        if len(df) < PCSE_BARS_NEEDED + 5:
+            continue
+        df = df.tail(PCSE_BARS_NEEDED)  # exact fold alignment -- guarantees the last row is covered
+
+        try:
+            prepared = strat_pcse.prepare(df)
+        except Exception as e:
+            print(f"  {symbol}/pcse: prepare failed: {e}")
+            continue
+        row = prepared.iloc[-1]
+        ts_str = str(prepared.index[-1])
+        cursor = state["cursors"].setdefault(symbol, {})
+        key = f"{symbol}|pcse"
+
+        # manage existing position: has the moving take-profit been touched?
+        if key in state["positions"]:
+            s = state["positions"][key]
+            bb_mid, bb_std = row.get("bb_mid"), row.get("bb_std")
+            if pd.notna(bb_mid) and pd.notna(bb_std):
+                tp_price = float(bb_mid) + strat_pcse.BB_NUM_STD * float(bb_std)
+                if tp_price > s["entry_price"] and float(row["High"]) >= tp_price:
+                    print(f"  {symbol}/pcse: take-profit touched (~{tp_price:.2f}) -- closing")
+                    if not args.dry_run:
+                        broker.cancel_order(s["stop_order_id"])
+                        broker.submit_market_sell(symbol, s["shares"])
+                    del state["positions"][key]
+                    continue  # don't also evaluate a fresh entry on this same bar
+
+        if cursor.get("last_4h_ts_pcse") == ts_str:
+            continue  # no new 4H bar since last run
+        cursor["last_4h_ts_pcse"] = ts_str
+
+        if key not in state["positions"] and bool(row["long_entry"]) and entry_allowed(open_count):
+            ret_stdev = float(row["ret_stdev"])
+            entry_hint = float(row["Close"])
+            initial_stop = entry_hint - strat_pcse.SL_MULT * ret_stdev * entry_hint
+            print(f"  {symbol}: PCSE entry signal")
+            if args.dry_run:
+                open_count += 1
+                continue
+            entry = place_entry("pcse", symbol, entry_hint, initial_stop, ret_stdev, equity)
+            if entry:
+                state["positions"][key] = entry
+                open_count += 1
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
@@ -233,6 +317,7 @@ def main():
 
     run_breakout(state, equity, args)
     run_mtf(state, equity, args)
+    run_pcse(state, equity, args)
 
     if not args.dry_run:
         save_state(state)
