@@ -1,0 +1,11 @@
+  prepped SPY: bars=40335 real_trades=285
+  prepped QQQ: bars=40126 real_trades=248
+  prepped AAPL: bars=40052 real_trades=364
+  prepped JPM: bars=34855 real_trades=365
+  prepped XOM: bars=36100 real_trades=340
+  prepped BTC-USD: bars=47388 real_trades=538
+  prepped ETH-USD: bars=47386 real_trades=445
+  prepped DOGE-USD: bars=47378 real_trades=859
+REAL: {'long': {'n': 3444, 'avg_r': -0.13696534108126632, 't_stat': -13.664309629962522}, 'short': {'n': 0, 'avg_r': 0.0, 't_stat': 0.0}}
+null_percentile_long: 100.0
+null_t_long sample: [-15.73651923037168, -16.483883371021072, -15.482702057396557, -16.410042721833793, -17.611113886312747, -18.648345939676172, -15.208253286227425, -18.273835828186115, -19.073854147022416, -14.186804179433487]

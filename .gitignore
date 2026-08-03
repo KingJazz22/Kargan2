@@ -5,3 +5,5 @@ __pycache__/
 live_state.json
 .cache_alpaca/
 .cache_entries_*/
+.cache_dual_entries_*/
+.claude/

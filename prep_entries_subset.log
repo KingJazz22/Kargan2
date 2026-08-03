@@ -1,0 +1,10 @@
+  SPY: prepped 41840 bars in 13.9s -> .cache_entries_1h\SPY.parquet
+  QQQ: prepped 41631 bars in 11.5s -> .cache_entries_1h\QQQ.parquet
+  AAPL: prepped 41557 bars in 10.6s -> .cache_entries_1h\AAPL.parquet
+  MSFT: prepped 40385 bars in 11.3s -> .cache_entries_1h\MSFT.parquet
+  NVDA: prepped 40333 bars in 10.0s -> .cache_entries_1h\NVDA.parquet
+  JPM: prepped 36360 bars in 14.2s -> .cache_entries_1h\JPM.parquet
+  XOM: prepped 37605 bars in 13.2s -> .cache_entries_1h\XOM.parquet
+  BTC-USD: prepped 48893 bars in 12.6s -> .cache_entries_1h\BTC-USD.parquet
+  ETH-USD: prepped 48891 bars in 10.9s -> .cache_entries_1h\ETH-USD.parquet
+  DOGE-USD: prepped 48883 bars in 12.0s -> .cache_entries_1h\DOGE-USD.parquet

@@ -1,0 +1,42 @@
+[4h] Loaded 26 symbols: ['AAPL', 'AMD', 'AMZN', 'AVAX-USD', 'BTC-USD', 'CRM', 'DIS', 'DOGE-USD', 'ETH-USD', 'GOOGL', 'HD', 'JNJ', 'JPM', 'META', 'MSFT', 'NFLX', 'NVDA', 'QQQ', 'SOL-USD', 'SPY', 'TSLA', 'UNH', 'V', 'WMT', 'XOM', 'XRP-USD']
+
+=== [4h] LONG side: SL sweep (TP=BB3.0std fixed) ===
+label                               n    avg_R   win%     PF   t_stat
+long SL=20.0x TP=BB(3.0std)       478    0.124  86.0%   1.89     5.15
+long SL=15.0x TP=BB(3.0std)       543    0.118  79.9%   1.60     4.24
+long SL=10.0x TP=BB(3.0std)       646    0.137  71.2%   1.48     4.05
+long SL=12.0x TP=BB(3.0std)       608    0.120  74.7%   1.47     3.87
+long SL=8.0x TP=BB(3.0std)        697    0.139  65.1%   1.40     3.65
+long SL=6.0x TP=BB(3.0std)        776    0.139  56.6%   1.31     3.19
+long SL=4.0x TP=BB(3.0std)        900    0.129  43.6%   1.22     2.42
+
+=== [4h] SHORT side: SL sweep (TP=BB3.0std fixed) ===
+label                               n    avg_R   win%     PF   t_stat
+short SL=20.0x TP=BB(3.0std)      506   -0.058  74.7%   0.76    -2.10
+short SL=4.0x TP=BB(3.0std)       894   -0.117  38.5%   0.81    -2.35
+short SL=8.0x TP=BB(3.0std)       718   -0.091  55.7%   0.79    -2.46
+short SL=6.0x TP=BB(3.0std)       791   -0.112  48.2%   0.78    -2.73
+short SL=15.0x TP=BB(3.0std)      542   -0.082  68.8%   0.73    -2.74
+short SL=10.0x TP=BB(3.0std)      656   -0.100  59.8%   0.74    -2.94
+short SL=12.0x TP=BB(3.0std)      605   -0.103  63.8%   0.71    -3.22
+[daily] Loaded 23 symbols: ['AAPL', 'AMD', 'AMZN', 'BTC-USD', 'CRM', 'DIS', 'DOGE-USD', 'ETH-USD', 'GOOGL', 'HD', 'JNJ', 'JPM', 'META', 'MSFT', 'NFLX', 'NVDA', 'QQQ', 'SPY', 'TSLA', 'UNH', 'V', 'WMT', 'XOM']
+
+=== [daily] LONG side: SL sweep (TP=BB3.0std fixed) ===
+label                               n    avg_R   win%     PF   t_stat
+long SL=20.0x TP=BB(3.0std)        10    0.070  90.0%   1.70     0.57
+long SL=8.0x TP=BB(3.0std)         15    0.045  66.7%   1.13     0.22
+long SL=15.0x TP=BB(3.0std)        10    0.022  80.0%   1.11     0.12
+long SL=10.0x TP=BB(3.0std)        15   -0.009  66.7%   0.97    -0.05
+long SL=12.0x TP=BB(3.0std)        14   -0.055  71.4%   0.81    -0.32
+long SL=6.0x TP=BB(3.0std)         18   -0.219  50.0%   0.57    -1.14
+long SL=4.0x TP=BB(3.0std)         24   -0.299  29.2%   0.57    -1.19
+
+=== [daily] SHORT side: SL sweep (TP=BB3.0std fixed) ===
+label                               n    avg_R   win%     PF   t_stat
+short SL=6.0x TP=BB(3.0std)        18   -0.086  50.0%   0.83    -0.36
+short SL=8.0x TP=BB(3.0std)        15   -0.081  60.0%   0.80    -0.37
+short SL=4.0x TP=BB(3.0std)        24   -0.146  37.5%   0.78    -0.58
+short SL=10.0x TP=BB(3.0std)       15   -0.126  60.0%   0.69    -0.62
+short SL=12.0x TP=BB(3.0std)       15   -0.172  60.0%   0.57    -0.90
+short SL=20.0x TP=BB(3.0std)       13   -0.159  69.2%   0.49    -0.95
+short SL=15.0x TP=BB(3.0std)       15   -0.229  60.0%   0.44    -1.30

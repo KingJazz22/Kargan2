@@ -1,0 +1,2 @@
+First half (earlier history):  {'n': 2209, 'avg_r': 0.10934675891773188, 't_stat': 7.095035464481976, 'win_rate': 0.7659574468085106, 'profit_factor': 1.4784016257479717}
+Second half (later history):   {'n': 1606, 'avg_r': 0.04537965661658974, 't_stat': 2.6144920905491156, 'win_rate': 0.7403486924034869, 'profit_factor': 1.1809157168499567}

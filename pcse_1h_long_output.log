@@ -1,0 +1,79 @@
+=== PCSE basket backtest: timeframe=1h long_only=True ===
+  US     SPY       trades=285  return=-29.32%  bars=40335  (2016-05-20 -> 2026-07-31)
+  US     QQQ       trades=248  return=-32.25%  bars=40126  (2016-05-23 -> 2026-07-31)
+  US     AAPL      trades=364  return=-42.76%  bars=40052  (2016-05-20 -> 2026-07-31)
+  US     MSFT      trades=341  return=-43.15%  bars=38880  (2016-06-09 -> 2026-07-31)
+  US     NVDA      trades=194  return=-18.84%  bars=38828  (2016-07-13 -> 2026-07-31)
+  US     GOOGL     trades=159  return=-23.49%  bars=33909  (2016-07-08 -> 2026-07-31)
+  US     AMZN      trades=288  return=-31.68%  bars=38161  (2016-06-08 -> 2026-07-31)
+  US     META      trades=141  return=-23.21%  bars=39724  (2016-05-23 -> 2026-07-31)
+  US     TSLA      trades=293  return=-33.71%  bars=39595  (2016-06-01 -> 2026-07-31)
+  US     JPM       trades=365  return=-43.97%  bars=34855  (2016-06-29 -> 2026-07-31)
+  US     XOM       trades=340  return=-26.31%  bars=36100  (2016-06-27 -> 2026-07-31)
+  US     UNH       trades=305  return=-48.69%  bars=27748  (2016-08-31 -> 2026-07-31)
+  US     HD        trades=354  return=-43.13%  bars=29687  (2016-07-25 -> 2026-07-31)
+  US     V         trades=401  return=-44.68%  bars=32221  (2016-07-12 -> 2026-07-31)
+  US     JNJ       trades=647  return=-59.17%  bars=30590  (2016-07-27 -> 2026-07-31)
+  US     WMT       trades=581  return=-59.87%  bars=33228  (2016-07-19 -> 2026-07-31)
+  US     DIS       trades=312  return=-46.17%  bars=35747  (2016-06-27 -> 2026-07-31)
+  US     NFLX      trades=337  return=-34.42%  bars=36695  (2016-06-03 -> 2026-07-31)
+  US     AMD       trades=159  return=-17.33%  bars=39340  (2016-07-06 -> 2026-07-31)
+  US     CRM       trades=363  return=-33.93%  bars=32938  (2016-07-29 -> 2026-07-31)
+  Crypto BTC-USD   trades=538  return=-61.41%  bars=47388  (2021-03-05 -> 2026-08-01)
+  Crypto ETH-USD   trades=445  return=-51.59%  bars=47386  (2021-03-05 -> 2026-08-01)
+  Crypto SOL-USD   trades=241  return=-44.84%  bars=37306  (2021-03-05 -> 2026-08-01)
+  skip BNB-USD: no bars for BNB/USD
+  Crypto XRP-USD   trades=291  return=-31.36%  bars=21085  (2024-03-04 -> 2026-08-01)
+  Crypto ADA-USD   trades=  7  return=+3.00%  bars= 2539  (2026-04-17 -> 2026-08-01)
+  Crypto DOGE-USD  trades=859  return=-60.27%  bars=47378  (2021-03-05 -> 2026-08-01)
+  Crypto AVAX-USD  trades=300  return=-52.77%  bars=39682  (2022-01-20 -> 2026-08-01)
+
+Total pooled trades: 9158
+
+=== Pooled trade statistics (all symbols, R-multiples) ===
+  num_trades: 9158
+  win_rate_pct: 40.9
+  avg_r_multiple: -0.149
+  median_r_multiple: -0.097
+  stdev_r_multiple: 0.581
+  profit_factor: 0.51
+  t_stat_vs_zero: -24.6
+
+  exit reason breakdown:
+edge_decay       4607
+hard_stop        2303
+trailing_stop    2248
+
+=== Per-symbol summary ===
+ group   symbol  num_trades  return_pct  bars
+    US      SPY         285      -29.32 40335
+    US      QQQ         248      -32.25 40126
+    US     AAPL         364      -42.76 40052
+    US     MSFT         341      -43.15 38880
+    US     NVDA         194      -18.84 38828
+    US    GOOGL         159      -23.49 33909
+    US     AMZN         288      -31.68 38161
+    US     META         141      -23.21 39724
+    US     TSLA         293      -33.71 39595
+    US      JPM         365      -43.97 34855
+    US      XOM         340      -26.31 36100
+    US      UNH         305      -48.69 27748
+    US       HD         354      -43.13 29687
+    US        V         401      -44.68 32221
+    US      JNJ         647      -59.17 30590
+    US      WMT         581      -59.87 33228
+    US      DIS         312      -46.17 35747
+    US     NFLX         337      -34.42 36695
+    US      AMD         159      -17.33 39340
+    US      CRM         363      -33.93 32938
+Crypto  BTC-USD         538      -61.41 47388
+Crypto  ETH-USD         445      -51.59 47386
+Crypto  SOL-USD         241      -44.84 37306
+Crypto  XRP-USD         291      -31.36 21085
+Crypto  ADA-USD           7        3.00  2539
+Crypto DOGE-USD         859      -60.27 47378
+Crypto AVAX-USD         300      -52.77 39682
+
+=== By group ===
+  US: n=6477  win_rate=40.1%  avg_R=-0.146
+  Crypto: n=2681  win_rate=42.9%  avg_R=-0.158

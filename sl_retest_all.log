@@ -1,0 +1,63 @@
+[1h] Loaded 10 symbols: ['AAPL', 'BTC-USD', 'DOGE-USD', 'ETH-USD', 'JPM', 'MSFT', 'NVDA', 'QQQ', 'SPY', 'XOM']
+
+=== [1h] LONG side: SL sweep (TP=BB3.0std fixed) ===
+label                               n    avg_R   win%     PF   t_stat
+long SL=12.0x TP=BB(3.0std)      1654    0.094  75.0%   1.38     5.18
+long SL=20.0x TP=BB(3.0std)      1302    0.072  82.9%   1.46     4.79
+long SL=10.0x TP=BB(3.0std)      1775    0.093  70.5%   1.32     4.62
+long SL=15.0x TP=BB(3.0std)      1452    0.077  78.2%   1.37     4.54
+long SL=8.0x TP=BB(3.0std)       1944    0.091  65.0%   1.26     4.10
+long SL=4.0x TP=BB(3.0std)       2487    0.091  46.2%   1.16     3.10
+long SL=6.0x TP=BB(3.0std)       2150    0.077  56.6%   1.17     3.08
+
+=== [1h] SHORT side: SL sweep (TP=BB3.0std fixed) ===
+label                               n    avg_R   win%     PF   t_stat
+short SL=4.0x TP=BB(3.0std)      2508   -0.077  44.1%   0.86    -3.01
+short SL=6.0x TP=BB(3.0std)      2191   -0.077  54.2%   0.83    -3.55
+short SL=12.0x TP=BB(3.0std)     1704   -0.064  69.1%   0.78    -3.80
+short SL=8.0x TP=BB(3.0std)      1989   -0.077  60.8%   0.80    -3.96
+short SL=10.0x TP=BB(3.0std)     1836   -0.071  65.4%   0.78    -3.99
+short SL=15.0x TP=BB(3.0std)     1543   -0.064  72.5%   0.75    -4.03
+short SL=20.0x TP=BB(3.0std)     1353   -0.066  76.6%   0.70    -4.47
+[4h] Loaded 10 symbols: ['AAPL', 'BTC-USD', 'DOGE-USD', 'ETH-USD', 'JPM', 'MSFT', 'NVDA', 'QQQ', 'SPY', 'XOM']
+
+=== [4h] LONG side: SL sweep (TP=BB3.0std fixed) ===
+label                               n    avg_R   win%     PF   t_stat
+long SL=20.0x TP=BB(3.0std)       165    0.163  87.9%   2.35     4.07
+long SL=10.0x TP=BB(3.0std)       248    0.183  74.2%   1.71     3.45
+long SL=15.0x TP=BB(3.0std)       202    0.154  81.7%   1.83     3.41
+long SL=8.0x TP=BB(3.0std)        271    0.193  68.6%   1.61     3.23
+long SL=6.0x TP=BB(3.0std)        306    0.208  60.5%   1.52     3.07
+long SL=12.0x TP=BB(3.0std)       238    0.147  76.5%   1.62     3.02
+long SL=4.0x TP=BB(3.0std)        353    0.201  47.6%   1.38     2.43
+
+=== [4h] SHORT side: SL sweep (TP=BB3.0std fixed) ===
+label                               n    avg_R   win%     PF   t_stat
+short SL=15.0x TP=BB(3.0std)      186   -0.096  68.3%   0.69    -1.96
+short SL=6.0x TP=BB(3.0std)       261   -0.125  49.0%   0.75    -2.01
+short SL=8.0x TP=BB(3.0std)       240   -0.128  54.2%   0.72    -2.23
+short SL=20.0x TP=BB(3.0std)      176   -0.100  72.2%   0.63    -2.26
+short SL=4.0x TP=BB(3.0std)       290   -0.172  38.6%   0.72    -2.43
+short SL=10.0x TP=BB(3.0std)      216   -0.140  58.3%   0.66    -2.59
+short SL=12.0x TP=BB(3.0std)      201   -0.134  62.7%   0.64    -2.61
+[daily] Loaded 10 symbols: ['AAPL', 'BTC-USD', 'DOGE-USD', 'ETH-USD', 'JPM', 'MSFT', 'NVDA', 'QQQ', 'SPY', 'XOM']
+
+=== [daily] LONG side: SL sweep (TP=BB3.0std fixed) ===
+label                               n    avg_R   win%     PF   t_stat
+long SL=15.0x TP=BB(3.0std)         5    0.243 100.0%    inf     5.88
+long SL=8.0x TP=BB(3.0std)          5    0.455 100.0%    inf     5.88
+long SL=12.0x TP=BB(3.0std)         5    0.304 100.0%    inf     5.88
+long SL=6.0x TP=BB(3.0std)          5    0.607 100.0%    inf     5.88
+long SL=10.0x TP=BB(3.0std)         5    0.364 100.0%    inf     5.88
+long SL=20.0x TP=BB(3.0std)         5    0.182 100.0%    inf     5.88
+long SL=4.0x TP=BB(3.0std)          9    0.030  44.4%   1.04     0.07
+
+=== [daily] SHORT side: SL sweep (TP=BB3.0std fixed) ===
+label                               n    avg_R   win%     PF   t_stat
+short SL=6.0x TP=BB(3.0std)         5    0.117  60.0%   1.29     0.26
+short SL=8.0x TP=BB(3.0std)         4    0.089  75.0%   1.36     0.23
+short SL=10.0x TP=BB(3.0std)        4    0.022  75.0%   1.09     0.06
+short SL=4.0x TP=BB(3.0std)         7   -0.020  42.9%   0.97    -0.04
+short SL=12.0x TP=BB(3.0std)        4   -0.024  75.0%   0.91    -0.07
+short SL=15.0x TP=BB(3.0std)        4   -0.069  75.0%   0.73    -0.22
+short SL=20.0x TP=BB(3.0std)        4   -0.114  75.0%   0.54    -0.38

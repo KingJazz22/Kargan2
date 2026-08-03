@@ -1,0 +1,56 @@
+  SPY: already cached
+  QQQ: already cached
+  AAPL: already cached
+  MSFT: already cached
+  NVDA: already cached
+  GOOGL: prepped 10575 bars in 37.6s -> .cache_dual_entries_4h\GOOGL.parquet
+  AMZN: prepped 11283 bars in 55.4s -> .cache_dual_entries_4h\AMZN.parquet
+  META: prepped 11387 bars in 49.3s -> .cache_dual_entries_4h\META.parquet
+  TSLA: prepped 11361 bars in 50.9s -> .cache_dual_entries_4h\TSLA.parquet
+  JPM: already cached
+  XOM: already cached
+  UNH: prepped 9359 bars in 35.2s -> .cache_dual_entries_4h\UNH.parquet
+  HD: prepped 9927 bars in 31.4s -> .cache_dual_entries_4h\HD.parquet
+  V: prepped 10444 bars in 31.4s -> .cache_dual_entries_4h\V.parquet
+  JNJ: prepped 10147 bars in 30.6s -> .cache_dual_entries_4h\JNJ.parquet
+  WMT: prepped 10530 bars in 32.1s -> .cache_dual_entries_4h\WMT.parquet
+  DIS: prepped 10878 bars in 34.5s -> .cache_dual_entries_4h\DIS.parquet
+  NFLX: prepped 11160 bars in 38.1s -> .cache_dual_entries_4h\NFLX.parquet
+  AMD: prepped 11289 bars in 49.9s -> .cache_dual_entries_4h\AMD.parquet
+  CRM: prepped 10515 bars in 38.6s -> .cache_dual_entries_4h\CRM.parquet
+  BTC-USD: already cached
+  ETH-USD: already cached
+  SOL-USD: prepped 9710 bars in 62.5s -> .cache_dual_entries_4h\SOL-USD.parquet
+  skip BNB-USD: no bars for BNB/USD
+  XRP-USD: prepped 5652 bars in 19.6s -> .cache_dual_entries_4h\XRP-USD.parquet
+  skip ADA-USD: Not enough bars (1012) for even one walk-forward fold (train_bars=1500, test_bars=250)
+  DOGE-USD: already cached
+  AVAX-USD: prepped 10300 bars in 63.7s -> .cache_dual_entries_4h\AVAX-USD.parquet
+  SPY: already cached
+  QQQ: already cached
+  AAPL: already cached
+  MSFT: already cached
+  NVDA: already cached
+  GOOGL: prepped 2659 bars in 0.3s -> .cache_dual_entries_daily\GOOGL.parquet
+  AMZN: prepped 2659 bars in 0.3s -> .cache_dual_entries_daily\AMZN.parquet
+  META: prepped 2659 bars in 0.3s -> .cache_dual_entries_daily\META.parquet
+  TSLA: prepped 2659 bars in 0.3s -> .cache_dual_entries_daily\TSLA.parquet
+  JPM: already cached
+  XOM: already cached
+  UNH: prepped 2659 bars in 0.3s -> .cache_dual_entries_daily\UNH.parquet
+  HD: prepped 2659 bars in 0.3s -> .cache_dual_entries_daily\HD.parquet
+  V: prepped 2659 bars in 0.3s -> .cache_dual_entries_daily\V.parquet
+  JNJ: prepped 2659 bars in 0.2s -> .cache_dual_entries_daily\JNJ.parquet
+  WMT: prepped 2659 bars in 0.3s -> .cache_dual_entries_daily\WMT.parquet
+  DIS: prepped 2659 bars in 0.3s -> .cache_dual_entries_daily\DIS.parquet
+  NFLX: prepped 2659 bars in 0.3s -> .cache_dual_entries_daily\NFLX.parquet
+  AMD: prepped 2659 bars in 0.2s -> .cache_dual_entries_daily\AMD.parquet
+  CRM: prepped 2659 bars in 0.3s -> .cache_dual_entries_daily\CRM.parquet
+  BTC-USD: already cached
+  ETH-USD: already cached
+  skip SOL-USD: Not enough bars (1621) for even one walk-forward fold (train_bars=1500, test_bars=250)
+  skip BNB-USD: no bars for BNB/USD
+  skip XRP-USD: Not enough bars (944) for even one walk-forward fold (train_bars=1500, test_bars=250)
+  skip ADA-USD: Not enough bars (170) for even one walk-forward fold (train_bars=1500, test_bars=250)
+  DOGE-USD: already cached
+  skip AVAX-USD: Not enough bars (1718) for even one walk-forward fold (train_bars=1500, test_bars=250)

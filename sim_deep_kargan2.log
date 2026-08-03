@@ -1,0 +1,19 @@
+40/40 symbols with both daily and 4H+Daily data
+
+
+============================================================
+LIVE SYSTEM SIMULATION -- Breakout Hunter + MTF v2 (4H+Daily)
+============================================================
+Symbols: 40 | Starting equity: $9,995.18 | Risk/trade: 1.0% | Max concurrent positions: 10
+
+Window: 2016-02-02 -> 2026-07-31 (10.5 yrs)
+Final equity: $7,923.48
+Total return: -20.7%
+CAGR: -2.2%
+Max drawdown: -47.7%
+Sharpe (daily, annualized): -0.09
+
+Closed trades: 1217 | Win rate: 42.8%
+Avg R: -0.016 | Total realized PnL: $-2,329.34
+   breakout: 356 trades | win rate 58.7% | avg R +0.138 | PnL $+4,649.15
+        mtf: 861 trades | win rate 36.2% | avg R -0.080 | PnL $-6,978.49

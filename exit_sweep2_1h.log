@@ -1,0 +1,31 @@
+Loaded 10 cached symbols: ['AAPL', 'BTC-USD', 'DOGE-USD', 'ETH-USD', 'JPM', 'MSFT', 'NVDA', 'QQQ', 'SPY', 'XOM']
+
+=== Extended SL range x top TP rules ===
+label                               n    avg_R   win%     PF   t_stat
+SL=10.0x TP=BB(3.0std)           1775    0.093  70.5%   1.32     4.62
+SL=10.0x TP=RSI>=80               934    0.198  49.1%   1.40     4.13
+SL=8.0x TP=BB(3.0std)            1944    0.091  65.0%   1.26     4.10
+SL=8.0x TP=RSI>=80               1050    0.193  42.7%   1.34     3.71
+SL=5.0x TP=RSI>=80               1334    0.219  30.9%   1.31     3.59
+SL=4.0x TP=RSI>=80               1480    0.233  26.4%   1.31     3.55
+SL=6.0x TP=RSI>=80               1220    0.199  34.9%   1.30     3.50
+SL=10.0x TP=EMA200               1552    0.075  66.7%   1.23     3.30
+SL=8.0x TP=EMA200                1741    0.077  62.0%   1.20     3.18
+SL=5.0x TP=BB(3.0std)            2311    0.084  51.8%   1.16     3.10
+SL=4.0x TP=BB(3.0std)            2487    0.091  46.2%   1.16     3.10
+SL=6.0x TP=BB(3.0std)            2150    0.077  56.6%   1.17     3.08
+SL=10.0x TP=BB(2.5std)           2219    0.039  77.1%   1.18     3.04
+SL=10.0x TP=RSI>=75              1410    0.074  58.7%   1.20     2.93
+SL=3.0x TP=BB(3.0std)            2742    0.093  38.9%   1.17     2.92
+SL=3.0x TP=RSI>=80               1743    0.204  20.4%   1.25     2.91
+SL=8.0x TP=BB(2.5std)            2393    0.039  72.1%   1.14     2.69
+SL=8.0x TP=RSI>=75               1549    0.073  52.9%   1.16     2.58
+SL=5.0x TP=RSI>=75               1870    0.083  40.3%   1.14     2.44
+SL=6.0x TP=EMA200                1996    0.064  55.1%   1.14     2.42
+
+--> best overall: SL=10.0x TP=BB(3.0std)  t=4.62
+
+=== Combined price-based TP rules at best SL ===
+label                               n    avg_R   win%     PF   t_stat
+SL=10.0x TP=min(BB3.0,BB2.5)     2238    0.040  76.7%   1.19     3.14
+SL=10.0x TP=min(BB3.0,BB2.5,EMA200)   2380    0.031  78.4%   1.16     2.75
