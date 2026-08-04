@@ -5,6 +5,20 @@ account -- the three validated strategies from this project (Grid-Martingale
 deliberately excluded -- its own FINDINGS_GRID_MARTINGALE.md says "still not
 ready for live paper trading").
 
+Account-level risk management (added after scavenging two other Railway bots
+before retiring them -- see commit history): a peak-equity circuit breaker, a
+daily-loss gate, a rolling-expectancy risk throttle, and partial profit-taking
+on breakout/mtf. These are execution/risk-discipline patterns borrowed from
+systems that ran them live, NOT independently backtested against Kargan2's
+own strategies -- unlike everything else in this file, there's no
+FINDINGS_*.md validating them against this project's edges. Treat them as
+insurance, not alpha. PCSE's exit logic is deliberately left untouched (its
+fixed-SL/moving-TP design is already validated by FINDINGS_CANDLE_PROB.md;
+bolting on an unvalidated partial-exit would compromise that). Also
+deliberately NOT ported: the "stale limit-exit order" fix from ALG_TRADINGV2
+-- this file uses real STOP orders (trigger-to-market), not resting limit
+exits, so that specific failure mode doesn't apply here.
+
 Run cadence:
   - Breakout Hunter only needs checking once per day (its signal is decided
     from the completed daily bar).
@@ -77,14 +91,32 @@ MTF_PARAMS = {
     "trend_filter_period": 200, "trend_filter_bar_hours": 24, "trend_filter_type": "vwap",
 }
 
+# Circuit breaker: halt NEW entries (existing positions still get managed --
+# trails still raised, PCSE take-profits still taken) once equity draws down
+# this much from its running peak. New entries resume once equity recovers.
+CIRCUIT_BREAKER_DD_PCT = 0.15
+# Daily loss gate: halt new entries for the rest of the calendar day once
+# equity is down this much from today's first-run equity.
+DAILY_LOSS_LIMIT_PCT = 0.04
+# Rolling-expectancy risk throttle: cut position-sizing risk once recent
+# closed-trade history turns negative, restore once equity makes a new peak.
+RISK_THROTTLE_MULT = 0.7
+RISK_THROTTLE_LOOKBACK = 20
+RISK_THROTTLE_CONSEC_LOSSES = 3
+# Partial profit-taking (breakout/mtf only, see module docstring): once a
+# position is this many R favorable, bank part of it and let the rest ride
+# the existing trailing stop.
+PARTIAL_PROFIT_R = 1.2
+PARTIAL_PROFIT_FRACTION = 0.3
 
-def place_entry(strategy, symbol, qty_hint_price, initial_stop, atr_at_signal, equity, extra=None):
+
+def place_entry(strategy, symbol, qty_hint_price, initial_stop, atr_at_signal, equity, risk_pct, extra=None):
     """Submits the market buy, waits for fill, places the protective stop,
     and returns the new state entry (or None if not filled/sizeable)."""
     stop_distance = qty_hint_price - initial_stop
     if stop_distance <= 0:
         return None
-    risk_amount = equity * RISK_PCT
+    risk_amount = equity * risk_pct
     qty = int(min(risk_amount / stop_distance, equity / qty_hint_price))
     if qty < 1:
         return None
@@ -101,8 +133,8 @@ def place_entry(strategy, symbol, qty_hint_price, initial_stop, atr_at_signal, e
 
     entry = {
         "entry_price": entry_price, "shares": filled_qty, "atr_at_entry": atr_at_signal,
-        "current_stop": initial_stop, "trail_active": False, "extreme": entry_price,
-        "stop_order_id": stop_order_id,
+        "current_stop": initial_stop, "initial_stop": initial_stop, "trail_active": False,
+        "extreme": entry_price, "stop_order_id": stop_order_id, "partial_taken": False,
     }
     if extra:
         entry.update(extra)
@@ -138,7 +170,69 @@ def update_trail(symbol, strategy, s, row, extreme_price, trail_mult, activate_a
             s["current_stop"] = new_stop
 
 
-def run_breakout(state, equity, args):
+def check_partial_profit(symbol, strategy, s, current_price, args):
+    """Banks PARTIAL_PROFIT_FRACTION of the position the first time it
+    reaches PARTIAL_PROFIT_R favorable R-multiple, then re-rests the stop
+    for the reduced quantity. One-shot per lot (s["partial_taken"]) --
+    doesn't repeat on later bars. Skips lots opened before this field
+    existed (no initial_stop -> no R-multiple to measure against)."""
+    if s.get("partial_taken") or s.get("initial_stop") is None:
+        return
+    r_distance = s["entry_price"] - s["initial_stop"]
+    if r_distance <= 0:
+        return
+    favorable_r = (current_price - s["entry_price"]) / r_distance
+    if favorable_r < PARTIAL_PROFIT_R:
+        return
+    qty_to_sell = int(s["shares"] * PARTIAL_PROFIT_FRACTION)
+    if qty_to_sell < 1:
+        return
+    print(f"  {symbol}/{strategy}: +{favorable_r:.2f}R -- taking partial profit on {qty_to_sell}/{s['shares']} shares")
+    if args.dry_run:
+        return
+    broker.cancel_order(s["stop_order_id"])
+    broker.submit_market_sell(symbol, qty_to_sell)
+    s["shares"] -= qty_to_sell
+    s["stop_order_id"] = broker.submit_stop_sell(symbol, s["shares"], s["current_stop"])
+    s["partial_taken"] = True
+
+
+def record_closed_trade(state, s, exit_price):
+    """Logs an R-multiple outcome for the rolling-expectancy risk throttle.
+    Only full closes are logged (not partial profit-takes) to avoid
+    double-counting a single position's outcome."""
+    initial_stop = s.get("initial_stop")
+    if initial_stop is None:
+        return  # pre-existing lot from before this field existed
+    r_distance = s["entry_price"] - initial_stop
+    if r_distance <= 0:
+        return
+    r_multiple = (exit_price - s["entry_price"]) / r_distance
+    log = state.setdefault("trade_log", [])
+    log.append({"r": r_multiple, "win": r_multiple > 0})
+    del log[:-200]  # keep bounded; no-op while the log is still short
+
+
+def update_risk_throttle(state, equity, peak_equity):
+    """Cuts risk_pct once recent closed-trade history turns negative
+    (3-in-a-row losses, or negative expectancy over the last
+    RISK_THROTTLE_LOOKBACK trades), restores it once equity makes a new
+    peak. Returns the risk_pct to use for sizing THIS run's new entries."""
+    log = state.get("trade_log", [])
+    three_losses = len(log) >= RISK_THROTTLE_CONSEC_LOSSES and all(
+        not t["win"] for t in log[-RISK_THROTTLE_CONSEC_LOSSES:]
+    )
+    neg_expectancy = len(log) >= RISK_THROTTLE_LOOKBACK and (
+        sum(t["r"] for t in log[-RISK_THROTTLE_LOOKBACK:]) / RISK_THROTTLE_LOOKBACK < 0
+    )
+    if three_losses or neg_expectancy:
+        state["risk_throttled"] = True
+    if equity >= peak_equity:
+        state["risk_throttled"] = False
+    return RISK_PCT * RISK_THROTTLE_MULT if state.get("risk_throttled") else RISK_PCT
+
+
+def run_breakout(state, equity, risk_pct, halt_entries, args):
     print("\n--- Breakout Hunter (daily) ---")
     bars = broker.fetch_daily_bars(SYMBOLS)
 
@@ -154,6 +248,7 @@ def run_breakout(state, equity, args):
         # manage existing position (breakout tracks its extreme via High, matching backtest_breakout.py)
         if key in state["positions"]:
             s = state["positions"][key]
+            check_partial_profit(symbol, "breakout", s, float(row["Close"]), args)
             update_trail(symbol, "breakout", s, row, float(row["High"]), strat_bo.TRAIL_ATR_MULT, strat_bo.TRAIL_ACTIVATE_ATR, args)
 
         if cursor.get("last_daily_date") == today_str:
@@ -163,16 +258,15 @@ def run_breakout(state, equity, args):
         if key not in state["positions"] and bool(row["long_entry"]):
             support, atr_sig = float(row["support"]), float(row["atr"])
             initial_stop = support - strat_bo.INITIAL_STOP_ATR_BUFFER * atr_sig
-            print(f"  {symbol}: BREAKOUT entry signal")
-            if args.dry_run:
+            print(f"  {symbol}: BREAKOUT entry signal" + (" (entries halted)" if halt_entries else ""))
+            if args.dry_run or halt_entries:
                 continue
-            entry = place_entry("breakout", symbol, float(row["Close"]), initial_stop, atr_sig, equity)
+            entry = place_entry("breakout", symbol, float(row["Close"]), initial_stop, atr_sig, equity, risk_pct)
             if entry:
-                entry["initial_stop"] = initial_stop
                 state["positions"][key] = entry
 
 
-def run_mtf(state, equity, args):
+def run_mtf(state, equity, risk_pct, halt_entries, args):
     print("\n--- MTF v2 (4H+Daily, TSL-only exit, VWAP(200) trend filter) ---")
     ltf_bars = broker.fetch_4h_bars(SYMBOLS)
     htf_bars = broker.fetch_daily_bars(SYMBOLS, lookback_days=500)  # >=200 daily bars for the VWAP filter's warmup
@@ -192,6 +286,7 @@ def run_mtf(state, equity, args):
         if key in state["positions"]:
             s = state["positions"][key]
             # MTF tracks its extreme via Close, not High, and has no activation gate (matching backtest_mtf.py exactly)
+            check_partial_profit(symbol, "mtf", s, float(row["Close"]), args)
             update_trail(symbol, "mtf", s, row, float(row["Close"]), strat_mtf.TRAIL_ATR_MULT, None, args)
 
         if cursor.get("last_4h_ts") == ts_str:
@@ -201,15 +296,15 @@ def run_mtf(state, equity, args):
         if key not in state["positions"] and bool(row["long_entry"]):
             atr_sig = float(row["atr"])
             initial_stop = float(row["Close"]) - strat_mtf.TRAIL_ATR_MULT * atr_sig  # trail active from bar 1
-            print(f"  {symbol}: MTF entry signal")
-            if args.dry_run:
+            print(f"  {symbol}: MTF entry signal" + (" (entries halted)" if halt_entries else ""))
+            if args.dry_run or halt_entries:
                 continue
-            entry = place_entry("mtf", symbol, float(row["Close"]), initial_stop, atr_sig, equity)
+            entry = place_entry("mtf", symbol, float(row["Close"]), initial_stop, atr_sig, equity, risk_pct)
             if entry:
                 state["positions"][key] = entry
 
 
-def run_pcse(state, equity, args):
+def run_pcse(state, equity, risk_pct, halt_entries, args):
     """PCSE (Probabilistic Candle-State Edge), 4H, long-only, SL=12x entry-time
     return-stdev (fixed) / TP=touch of the 20-bar Bollinger upper band at
     3.0std (moving target). Unlike breakout/mtf's single resting stop, the
@@ -258,7 +353,9 @@ def run_pcse(state, equity, args):
                     print(f"  {symbol}/pcse: take-profit touched (~{tp_price:.2f}) -- closing")
                     if not args.dry_run:
                         broker.cancel_order(s["stop_order_id"])
-                        broker.submit_market_sell(symbol, s["shares"])
+                        fill = broker.submit_market_sell(symbol, s["shares"])
+                        exit_price = fill["fill_price"] if fill.get("filled") else tp_price
+                        record_closed_trade(state, s, exit_price)
                     del state["positions"][key]
                     continue  # don't also evaluate a fresh entry on this same bar
 
@@ -270,10 +367,10 @@ def run_pcse(state, equity, args):
             ret_stdev = float(row["ret_stdev"])
             entry_hint = float(row["Close"])
             initial_stop = entry_hint - strat_pcse.SL_MULT * ret_stdev * entry_hint
-            print(f"  {symbol}: PCSE entry signal")
-            if args.dry_run:
+            print(f"  {symbol}: PCSE entry signal" + (" (entries halted)" if halt_entries else ""))
+            if args.dry_run or halt_entries:
                 continue
-            entry = place_entry("pcse", symbol, entry_hint, initial_stop, ret_stdev, equity)
+            entry = place_entry("pcse", symbol, entry_hint, initial_stop, ret_stdev, equity, risk_pct)
             if entry:
                 state["positions"][key] = entry
 
@@ -288,6 +385,7 @@ def main():
     state = load_state()
     state.setdefault("positions", {})
     state.setdefault("cursors", {})
+    state.setdefault("trade_log", [])
 
     equity = broker.get_equity()
     broker_positions = broker.get_open_positions()
@@ -302,14 +400,41 @@ def main():
         status = broker.get_order_status(s["stop_order_id"])
         if status["status"] == "filled":
             print(f"  {key}: stopped out @ {status['fill_price']:.2f} -- clearing local state")
+            record_closed_trade(state, s, status["fill_price"])
             del state["positions"][key]
         elif status["status"] in ("canceled", "expired", "rejected"):
             print(f"  {key}: stop order {status['status']} unexpectedly -- clearing local state, check the account manually")
             del state["positions"][key]
 
-    run_breakout(state, equity, args)
-    run_mtf(state, equity, args)
-    run_pcse(state, equity, args)
+    # Peak-equity circuit breaker + daily loss gate: both only ever block NEW
+    # entries below (run_* still manage/trail/take-profit existing positions
+    # regardless -- halting means "stop adding risk", not "abandon positions").
+    peak_equity = max(state.get("peak_equity", equity), equity)
+    state["peak_equity"] = peak_equity
+    drawdown_pct = (peak_equity - equity) / peak_equity if peak_equity > 0 else 0.0
+
+    today_str = str(datetime.now().date())
+    if state.get("daily_start_date") != today_str:
+        state["daily_start_date"] = today_str
+        state["daily_start_equity"] = equity
+    daily_start_equity = state.get("daily_start_equity", equity)
+    daily_loss_pct = (daily_start_equity - equity) / daily_start_equity if daily_start_equity > 0 else 0.0
+
+    halt_entries = False
+    if drawdown_pct >= CIRCUIT_BREAKER_DD_PCT:
+        print(f"\n!!! CIRCUIT BREAKER: equity ${equity:,.2f} is {drawdown_pct:.1%} below peak ${peak_equity:,.2f} -- new entries halted")
+        halt_entries = True
+    elif daily_loss_pct >= DAILY_LOSS_LIMIT_PCT:
+        print(f"\n!!! DAILY LOSS GATE: equity down {daily_loss_pct:.1%} today (from ${daily_start_equity:,.2f}) -- new entries halted until tomorrow")
+        halt_entries = True
+
+    risk_pct = update_risk_throttle(state, equity, peak_equity)
+    if risk_pct < RISK_PCT:
+        print(f"  risk throttled to {risk_pct:.2%} of equity per trade (recent performance below bar)")
+
+    run_breakout(state, equity, risk_pct, halt_entries, args)
+    run_mtf(state, equity, risk_pct, halt_entries, args)
+    run_pcse(state, equity, risk_pct, halt_entries, args)
 
     if not args.dry_run:
         save_state(state)

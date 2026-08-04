@@ -109,7 +109,7 @@ def test_basic_flow():
 
         state = {"positions": {}, "cursors": {}}
         args = type("Args", (), {"dry_run": False})()
-        lt.run_breakout(state, fb.get_equity(), args)
+        lt.run_breakout(state, fb.get_equity(), lt.RISK_PCT, False, args)
 
         assert "AAA|breakout" in state["positions"], "expected a breakout position to open"
         pos = state["positions"]["AAA|breakout"]
@@ -118,7 +118,7 @@ def test_basic_flow():
 
         # second call same day: cursor should prevent reprocessing (no duplicate order)
         orders_before = len(fb.orders)
-        lt.run_breakout(state, fb.get_equity(), args)
+        lt.run_breakout(state, fb.get_equity(), lt.RISK_PCT, False, args)
         assert len(fb.orders) == orders_before, "cursor should have prevented a duplicate entry attempt"
         print("  OK: same-day cursor prevented duplicate processing")
 
@@ -136,9 +136,9 @@ def test_same_symbol_two_strategies():
          patch.object(lt.broker, "cancel_order", side_effect=fb.cancel_order), \
          patch.object(lt.broker, "get_order_status", side_effect=fb.get_order_status):
 
-        entry_bo = lt.place_entry("breakout", "BBB", 200.0, 190.0, 2.0, 100_000.0)
+        entry_bo = lt.place_entry("breakout", "BBB", 200.0, 190.0, 2.0, 100_000.0, lt.RISK_PCT)
         state["positions"]["BBB|breakout"] = entry_bo
-        entry_mtf = lt.place_entry("mtf", "BBB", 200.0, 195.0, 2.0, 100_000.0)
+        entry_mtf = lt.place_entry("mtf", "BBB", 200.0, 195.0, 2.0, 100_000.0, lt.RISK_PCT)
         state["positions"]["BBB|mtf"] = entry_mtf
 
         assert fb.positions["BBB"] == entry_bo["shares"] + entry_mtf["shares"], "Alpaca should show ONE combined qty"
@@ -175,7 +175,7 @@ def test_pcse_take_profit_close():
     fb.positions["CCC"] = 5
     state["positions"]["CCC|pcse"] = {
         "entry_price": entry_price, "shares": 5, "atr_at_entry": 1.0,
-        "current_stop": 90.0, "trail_active": False, "extreme": entry_price,
+        "current_stop": 90.0, "initial_stop": 90.0, "trail_active": False, "extreme": entry_price,
         "stop_order_id": stop_order_id,
     }
 
@@ -193,16 +193,112 @@ def test_pcse_take_profit_close():
         out.iloc[-1, out.columns.get_loc("High")] = 110.0  # touches tp_price (106)
         prep.return_value = out
 
-        lt.run_pcse(state, fb.get_equity(), args)
+        lt.run_pcse(state, fb.get_equity(), lt.RISK_PCT, False, args)
 
         assert "CCC|pcse" not in state["positions"], "PCSE position should have closed on take-profit touch"
         assert fb.orders[stop_order_id]["status"] == "canceled", "stop order should have been canceled"
         assert fb.positions["CCC"] == 0, "shares should have been sold"
         print("  OK: PCSE take-profit touch closed the position and canceled the stop")
+        assert len(state["trade_log"]) == 1, "take-profit close should have logged one trade"
+        assert state["trade_log"][0]["win"] is True, "closing above entry should log a win"
+
+
+def test_halt_entries_blocks_new_positions():
+    print("--- test_halt_entries_blocks_new_positions ---")
+    fb = FakeBroker()
+    fb.set_price("AAA", 150.0)
+
+    daily = {"AAA": make_bars(300)}
+    daily["AAA"].loc[daily["AAA"].index[-1], "Close"] = daily["AAA"]["High"].iloc[-30:-1].max() + 5
+    daily["AAA"].loc[daily["AAA"].index[-1], "Open"] = daily["AAA"]["Close"].iloc[-1]
+    daily["AAA"].loc[daily["AAA"].index[-1], "Volume"] = daily["AAA"]["Volume"].iloc[-20:].mean() * 3
+
+    with patch.object(lt.strat_bo, "prepare") as prep, patch.object(lt.broker, "fetch_daily_bars", return_value=daily), \
+         patch.object(lt.broker, "submit_market_buy", side_effect=fb.submit_market_buy):
+
+        out = daily["AAA"].copy()
+        out["atr"] = 2.0
+        out["support"] = out["Low"].rolling(20).min()
+        out["long_entry"] = False
+        out.iloc[-1, out.columns.get_loc("long_entry")] = True
+        prep.return_value = out
+
+        state = {"positions": {}, "cursors": {}}
+        args = type("Args", (), {"dry_run": False})()
+        lt.run_breakout(state, fb.get_equity(), lt.RISK_PCT, True, args)  # halt_entries=True
+
+        assert "AAA|breakout" not in state["positions"], "a valid signal must NOT open a position while entries are halted"
+        assert len(fb.orders) == 0, "no order should have been placed while halted"
+        print("  OK: halt_entries=True suppressed a real entry signal")
+
+
+def test_risk_throttle():
+    print("--- test_risk_throttle ---")
+    state = {"trade_log": []}
+    risk = lt.update_risk_throttle(state, equity=10_000.0, peak_equity=10_000.0)
+    assert risk == lt.RISK_PCT, "no trade history yet -- should size at full risk"
+
+    # 3 consecutive losses should throttle risk down
+    state["trade_log"] = [{"r": -1.0, "win": False}] * 3
+    risk = lt.update_risk_throttle(state, equity=9_700.0, peak_equity=10_000.0)
+    assert risk == pytest_approx(lt.RISK_PCT * lt.RISK_THROTTLE_MULT), "3 losses in a row should throttle risk"
+
+    # a new equity high should clear the throttle even with the same losing history
+    risk = lt.update_risk_throttle(state, equity=10_050.0, peak_equity=10_050.0)
+    assert risk == lt.RISK_PCT, "a new equity peak should restore full risk"
+    print("  OK: risk throttle engages on 3 losses, clears on a new equity peak")
+
+
+def pytest_approx(x, tol=1e-9):
+    """Tiny local float-compare helper -- avoids pulling in pytest for one assertion."""
+    class _Approx:
+        def __eq__(self, other):
+            return abs(other - x) < tol
+    return _Approx()
+
+
+def test_partial_profit_take():
+    print("--- test_partial_profit_take ---")
+    fb = FakeBroker()
+    fb.set_price("DDD", 110.0)
+
+    stop_order_id = "stop-partial"
+    fb.orders[stop_order_id] = {"status": "open", "symbol": "DDD", "qty": 10, "stop_price": 95.0}
+    fb.positions["DDD"] = 10
+    s = {
+        "entry_price": 100.0, "shares": 10, "atr_at_entry": 1.0, "current_stop": 95.0,
+        "initial_stop": 95.0, "trail_active": True, "extreme": 110.0,
+        "stop_order_id": stop_order_id, "partial_taken": False,
+    }
+
+    with patch.object(lt.broker, "cancel_order", side_effect=fb.cancel_order), \
+         patch.object(lt.broker, "submit_market_sell", side_effect=fb.submit_market_sell), \
+         patch.object(lt.broker, "submit_stop_sell", side_effect=fb.submit_stop_sell):
+
+        args = type("Args", (), {"dry_run": False})()
+        # entry=100, stop=95 -> 1R=5; price=110 -> +2.0R, above PARTIAL_PROFIT_R (1.2)
+        lt.check_partial_profit("DDD", "breakout", s, 110.0, args)
+
+        assert s["partial_taken"] is True
+        assert s["shares"] == 7, f"expected 30% of 10 shares (3) sold, 7 remaining, got {s['shares']}"
+        assert fb.orders[stop_order_id]["status"] == "canceled", "original stop should be canceled"
+        assert fb.positions["DDD"] == 7, "broker position should reflect the partial sell"
+        new_stop_orders = [o for o in fb.orders.values() if o["symbol"] == "DDD" and o["status"] == "open"]
+        assert len(new_stop_orders) == 1 and new_stop_orders[0]["qty"] == 7, "a fresh stop for the reduced qty should be resting"
+        print(f"  OK: partial profit sold 3/10 shares at +2.0R, re-rested stop for {s['shares']}")
+
+        # calling again on the same lot should be a no-op (one-shot per lot)
+        orders_before = len(fb.orders)
+        lt.check_partial_profit("DDD", "breakout", s, 115.0, args)
+        assert len(fb.orders) == orders_before, "partial profit should only trigger once per lot"
+        print("  OK: partial profit is one-shot per lot")
 
 
 if __name__ == "__main__":
     test_basic_flow()
     test_same_symbol_two_strategies()
     test_pcse_take_profit_close()
+    test_halt_entries_blocks_new_positions()
+    test_risk_throttle()
+    test_partial_profit_take()
     print("\nALL OFFLINE TESTS PASSED")
