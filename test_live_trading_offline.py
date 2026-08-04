@@ -36,6 +36,11 @@ class FakeBroker:
         self.positions[symbol] = self.positions.get(symbol, 0) + qty
         return {"filled": True, "fill_price": price, "qty": qty}
 
+    def submit_market_sell(self, symbol, qty, wait_fill_seconds=30):
+        price = self._last_price.get(symbol, 100.0)
+        self.positions[symbol] = max(0, self.positions.get(symbol, 0) - qty)
+        return {"filled": True, "fill_price": price, "qty": qty}
+
     def submit_stop_sell(self, symbol, qty, stop_price):
         oid = self._new_id()
         self.orders[oid] = {"status": "open", "symbol": symbol, "qty": qty, "stop_price": stop_price}
@@ -164,8 +169,51 @@ def test_max_concurrent_cap():
     print("  OK: entry allowed just under the cap")
 
 
+def test_pcse_take_profit_close():
+    print("--- test_pcse_take_profit_close ---")
+    fb = FakeBroker()
+    fb.set_price("CCC", 150.0)
+
+    daily = {"CCC": make_bars(lt.PCSE_BARS_NEEDED + 10, start_price=100.0)}
+
+    state = {"positions": {}, "cursors": {}}
+    args = type("Args", (), {"dry_run": False})()
+
+    entry_price = 100.0
+    stop_order_id = "stop-1"
+    fb.orders[stop_order_id] = {"status": "open", "symbol": "CCC", "qty": 5, "stop_price": 90.0}
+    fb.positions["CCC"] = 5
+    state["positions"]["CCC|pcse"] = {
+        "entry_price": entry_price, "shares": 5, "atr_at_entry": 1.0,
+        "current_stop": 90.0, "trail_active": False, "extreme": entry_price,
+        "stop_order_id": stop_order_id,
+    }
+
+    with patch.object(lt, "PCSE_SYMBOLS", ["CCC"]), \
+         patch.object(lt.strat_pcse, "prepare") as prep, \
+         patch.object(lt.broker, "fetch_4h_bars", return_value=daily), \
+         patch.object(lt.broker, "cancel_order", side_effect=fb.cancel_order), \
+         patch.object(lt.broker, "submit_market_sell", side_effect=fb.submit_market_sell), \
+         patch.object(lt.broker, "get_order_status", side_effect=fb.get_order_status):
+
+        out = daily["CCC"].copy()
+        out["bb_mid"] = 100.0
+        out["bb_std"] = 2.0  # tp_price = 100 + BB_NUM_STD(3.0)*2.0 = 106
+        out["long_entry"] = False
+        out.iloc[-1, out.columns.get_loc("High")] = 110.0  # touches tp_price (106)
+        prep.return_value = out
+
+        lt.run_pcse(state, fb.get_equity(), args)
+
+        assert "CCC|pcse" not in state["positions"], "PCSE position should have closed on take-profit touch"
+        assert fb.orders[stop_order_id]["status"] == "canceled", "stop order should have been canceled"
+        assert fb.positions["CCC"] == 0, "shares should have been sold"
+        print("  OK: PCSE take-profit touch closed the position and canceled the stop")
+
+
 if __name__ == "__main__":
     test_basic_flow()
     test_same_symbol_two_strategies()
     test_max_concurrent_cap()
+    test_pcse_take_profit_close()
     print("\nALL OFFLINE TESTS PASSED")
