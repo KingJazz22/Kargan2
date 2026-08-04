@@ -159,16 +159,6 @@ def test_same_symbol_two_strategies():
         print("  OK: breakout lot closed independently, mtf lot on the same symbol unaffected")
 
 
-def test_max_concurrent_cap():
-    print("--- test_max_concurrent_cap ---")
-    state = {"positions": {f"SYM{i}|breakout": {} for i in range(lt.MAX_CONCURRENT_POSITIONS)}, "cursors": {}}
-    assert not lt.entry_allowed(len(state["positions"])), "cap should block a new entry once at the limit"
-    print(f"  OK: entry blocked at {lt.MAX_CONCURRENT_POSITIONS} concurrent positions")
-    state["positions"].pop(next(iter(state["positions"])))
-    assert lt.entry_allowed(len(state["positions"])), "entry should be allowed just under the cap"
-    print("  OK: entry allowed just under the cap")
-
-
 def test_pcse_take_profit_close():
     print("--- test_pcse_take_profit_close ---")
     fb = FakeBroker()
@@ -214,6 +204,5 @@ def test_pcse_take_profit_close():
 if __name__ == "__main__":
     test_basic_flow()
     test_same_symbol_two_strategies()
-    test_max_concurrent_cap()
     test_pcse_take_profit_close()
     print("\nALL OFFLINE TESTS PASSED")

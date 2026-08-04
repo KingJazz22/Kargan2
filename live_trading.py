@@ -48,7 +48,12 @@ from test_mtf_oos_symbols import OOS_US_SYMBOLS
 
 SYMBOLS = US_SYMBOLS + OOS_US_SYMBOLS  # the 40 symbols both edges were validated on
 RISK_PCT = 0.01
-MAX_CONCURRENT_POSITIONS = 10  # across ALL THREE strategies combined
+# No position-count cap: simulate_full_kargan2_system.py's sweep showed cash
+# availability (each entry sized off available cash, see place_entry) was
+# already the real constraint -- capping at 10 vs 15/20/uncapped changed
+# total return by well under 1pp and left max drawdown identical (-16.1%
+# every time), consistent with this project's other combined-portfolio
+# findings that position-COUNT caps stop binding long before they matter.
 
 # PCSE was only validated on basket.US_SYMBOLS (20 symbols, the in-sample half
 # of SYMBOLS above) -- NOT the OOS_US_SYMBOLS half, and not extended here
@@ -71,10 +76,6 @@ MTF_PARAMS = {
     # sweep_mtf_trend_filter.py / FINDINGS_MTF.md for the full sweep.
     "trend_filter_period": 200, "trend_filter_bar_hours": 24, "trend_filter_type": "vwap",
 }
-
-
-def entry_allowed(open_count):
-    return open_count < MAX_CONCURRENT_POSITIONS
 
 
 def place_entry(strategy, symbol, qty_hint_price, initial_stop, atr_at_signal, equity, extra=None):
@@ -140,7 +141,6 @@ def update_trail(symbol, strategy, s, row, extreme_price, trail_mult, activate_a
 def run_breakout(state, equity, args):
     print("\n--- Breakout Hunter (daily) ---")
     bars = broker.fetch_daily_bars(SYMBOLS)
-    open_count = len(state["positions"])
 
     for symbol, df in bars.items():
         if len(df) < strat_bo.PERCENTILE_LOOKBACK + 50:
@@ -160,25 +160,22 @@ def run_breakout(state, equity, args):
             continue  # already processed today's bar
         cursor["last_daily_date"] = today_str
 
-        if key not in state["positions"] and bool(row["long_entry"]) and entry_allowed(open_count):
+        if key not in state["positions"] and bool(row["long_entry"]):
             support, atr_sig = float(row["support"]), float(row["atr"])
             initial_stop = support - strat_bo.INITIAL_STOP_ATR_BUFFER * atr_sig
             print(f"  {symbol}: BREAKOUT entry signal")
             if args.dry_run:
-                open_count += 1
                 continue
             entry = place_entry("breakout", symbol, float(row["Close"]), initial_stop, atr_sig, equity)
             if entry:
                 entry["initial_stop"] = initial_stop
                 state["positions"][key] = entry
-                open_count += 1
 
 
 def run_mtf(state, equity, args):
     print("\n--- MTF v2 (4H+Daily, TSL-only exit, VWAP(200) trend filter) ---")
     ltf_bars = broker.fetch_4h_bars(SYMBOLS)
     htf_bars = broker.fetch_daily_bars(SYMBOLS, lookback_days=500)  # >=200 daily bars for the VWAP filter's warmup
-    open_count = len(state["positions"])
 
     for symbol in SYMBOLS:
         if symbol not in ltf_bars or symbol not in htf_bars:
@@ -201,17 +198,15 @@ def run_mtf(state, equity, args):
             continue  # no new 4H bar since last run
         cursor["last_4h_ts"] = ts_str
 
-        if key not in state["positions"] and bool(row["long_entry"]) and entry_allowed(open_count):
+        if key not in state["positions"] and bool(row["long_entry"]):
             atr_sig = float(row["atr"])
             initial_stop = float(row["Close"]) - strat_mtf.TRAIL_ATR_MULT * atr_sig  # trail active from bar 1
             print(f"  {symbol}: MTF entry signal")
             if args.dry_run:
-                open_count += 1
                 continue
             entry = place_entry("mtf", symbol, float(row["Close"]), initial_stop, atr_sig, equity)
             if entry:
                 state["positions"][key] = entry
-                open_count += 1
 
 
 def run_pcse(state, equity, args):
@@ -234,7 +229,6 @@ def run_pcse(state, equity, args):
     """
     print("\n--- PCSE (4H, SL=12x / TP=BB(3.0std)) ---")
     bars = broker.fetch_4h_bars(PCSE_SYMBOLS, lookback_days=PCSE_LOOKBACK_DAYS)
-    open_count = len(state["positions"])
 
     for symbol in PCSE_SYMBOLS:
         if symbol not in bars:
@@ -272,18 +266,16 @@ def run_pcse(state, equity, args):
             continue  # no new 4H bar since last run
         cursor["last_4h_ts_pcse"] = ts_str
 
-        if key not in state["positions"] and bool(row["long_entry"]) and entry_allowed(open_count):
+        if key not in state["positions"] and bool(row["long_entry"]):
             ret_stdev = float(row["ret_stdev"])
             entry_hint = float(row["Close"])
             initial_stop = entry_hint - strat_pcse.SL_MULT * ret_stdev * entry_hint
             print(f"  {symbol}: PCSE entry signal")
             if args.dry_run:
-                open_count += 1
                 continue
             entry = place_entry("pcse", symbol, entry_hint, initial_stop, ret_stdev, equity)
             if entry:
                 state["positions"][key] = entry
-                open_count += 1
 
 
 def main():

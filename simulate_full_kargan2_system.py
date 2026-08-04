@@ -313,7 +313,7 @@ if __name__ == "__main__":
     print("POSITION-CAP SENSITIVITY SWEEP (same trades, replayed with different caps)")
     print(f"{'='*70}")
     print(f"{'cap':>5}{'return':>12}{'max_dd':>10}{'sharpe':>9}")
-    for cap in [3, 4, 5, 6, 7, 8, 10]:
+    for cap in [3, 4, 5, 6, 7, 8, 10, 15, 20, 999999]:
         c, e, b, a = run_shared_ledger(all_trades, price_series, max_open=cap)
         if e.empty:
             continue
@@ -325,4 +325,8 @@ if __name__ == "__main__":
         daily_eq = e["equity"].resample("1D").last().dropna()
         daily_ret = daily_eq.pct_change().dropna()
         sharpe = (daily_ret.mean() / daily_ret.std() * (252 ** 0.5)) if daily_ret.std() > 0 else 0.0
-        print(f"{cap:>5}{total_return:>11.1f}%{max_dd:>9.1f}%{sharpe:>9.2f}")
+        cap_label = "none" if cap >= 999999 else str(cap)
+        print(f"{cap_label:>5}{total_return:>11.1f}%{max_dd:>9.1f}%{sharpe:>9.2f}")
+        if cap >= 999999:
+            print("\n--- Drawdown attribution for the UNCAPPED run ---")
+            analyze_drawdown(e, a, price_series)
