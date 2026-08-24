@@ -102,6 +102,32 @@ breakout itself become far more prone to whipsaws and fakeouts. This is
 specifically a daily-bar strategy, not a general one that's merely weaker
 elsewhere -- 1H is significantly negative on a large sample (n=1234).
 
+## Corrected 2026-08-24: gap-through stop-fill bug fixed, daily basket re-run
+`backtest_breakout.py`'s `emergency_stop`/`active_stop` exits filled at the
+theoretical stop price even when price gapped straight through it overnight
+-- the same bug proven in `backtest_swing_breakout.py` (SPY 2019-12-03
+booked an exit above that day's actual High) and found across ~14 backtest
+engines project-wide. Fixed by clamping the fill to the bar's Open whenever
+it already gapped past the stop. Re-ran the daily IS/OOS basket
+(`run_basket_breakout.py daily`, same symbols/dates as before):
+
+| | IS, before | IS, after | OOS, before | OOS, after |
+|---|---|---|---|---|
+| Trades | 288 | 288 | 267 | 267 |
+| Win rate | 58.0% | 54.9% | 54.7% | 47.9% |
+| Avg R | +0.131 | +0.092 | -0.010 | -0.053 |
+| Profit factor | 1.62 | 1.43 | 0.96 | 0.80 |
+| t-stat | 2.88 | 2.11 | -0.24 | -1.24 |
+| **US avg R / t** | +0.150 / 3.40 | **+0.122 / 2.80** | -- | -- |
+
+**Verdict: survives, weakened.** The headline US combined (IS+OOS) result
+that justified live trading drops from t=3.40 to t=2.80 -- still clears
+this project's significance bar (>2), so Breakout Hunter's live validation
+holds, but with a real haircut. OOS-only US avg R also weakens (was folded
+into the combined-only figure originally; post-fix breakout is +0.028,
+t=0.46 on its own -- the edge still leans on IS carrying the combined
+result, more than the pre-fix numbers suggested).
+
 ## Comparison to other strategies in this project
 This is the only strategy whose combined (in-sample + out-of-sample) result
 clears statistical significance outright for a sub-universe (US, t=3.40) on

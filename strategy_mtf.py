@@ -70,6 +70,15 @@ def prepare(
     elif out.index.tz is None and htf_known.index.tz is not None:
         out.index = out.index.tz_localize(htf_known.index.tz)
 
+    # pd.Timedelta arithmetic can upcast the index's datetime64 unit (e.g.
+    # [s] -> [us]), which makes merge_asof reject the two indexes as
+    # "incompatible merge keys" even though they're both plain UTC
+    # timestamps -- normalize both sides to the same unit first.
+    if out.index.dtype != htf_known.index.dtype:
+        common_unit = "us"
+        out.index = out.index.as_unit(common_unit)
+        htf_known.index = htf_known.index.as_unit(common_unit)
+
     out = pd.merge_asof(out.sort_index(), htf_known.sort_index(), left_index=True, right_index=True, direction="backward")
 
     ltf_oversold = (out["rsi"] < rsi_oversold) & (out["stoch_k"] < stoch_oversold)
@@ -101,6 +110,10 @@ def prepare(
         tf_known.index = tf_known.index + pd.Timedelta(hours=trend_filter_bar_hours)
         if out.index.tz is not None and tf_known.index.tz is None:
             tf_known.index = tf_known.index.tz_localize(out.index.tz)
+        if out.index.dtype != tf_known.index.dtype:
+            common_unit = "us"
+            out.index = out.index.as_unit(common_unit)
+            tf_known.index = tf_known.index.as_unit(common_unit)
         out = pd.merge_asof(out.sort_index(), tf_known.sort_index(), left_index=True, right_index=True, direction="backward")
 
         above_trend = out["Close"] > out["trend_line"]

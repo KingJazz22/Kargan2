@@ -210,7 +210,9 @@ def run_combined(symbols, starting_equity=STARTING_EQUITY, risk_pct=RISK_PCT, ve
                     fired = None
 
                     if grid.stop_hit(row):
-                        fired = ("grid_stop", grid.stop_price)
+                        bar_open = row["Open"]
+                        stop_fill = bar_open if bar_open <= grid.stop_price else grid.stop_price
+                        fired = ("grid_stop", stop_fill)
                     elif grid.leg_count - 1 < MAX_LEGS and grid.bars_since_last_leg >= MIN_BARS_BETWEEN_LEGS:
                         trigger_price = grid.leg_add_trigger_price()
                         if grid.leg_trigger_hit(row, trigger_price):
@@ -235,7 +237,9 @@ def run_combined(symbols, starting_equity=STARTING_EQUITY, risk_pct=RISK_PCT, ve
                                     fired = ("leg_add", trigger_price)
 
                     if fired is None and grid.tp_hit(row):
-                        fired = ("take_profit", grid.tp_price)
+                        bar_open = row["Open"]
+                        tp_fill = bar_open if bar_open >= grid.tp_price else grid.tp_price
+                        fired = ("take_profit", tp_fill)
 
                     if fired is not None and fired[0] in ("grid_stop", "take_profit"):
                         gt = GridTrade.from_grid(grid, date, fired[1], fired[0])

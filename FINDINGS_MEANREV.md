@@ -77,6 +77,25 @@ Mean reversion is consistently less bad than trend-following at every comparable
 timeframe (higher win rate, less negative avg R, better profit factor) but neither
 strategy has a demonstrated edge anywhere in the sweep. See `FINDINGS.md`.
 
+## Corrected 2026-08-24: gap-through stop-fill bug fixed, daily re-run
+`backtest_mr.py`'s trailing-stop exit filled at the theoretical stop price
+even on bars that gapped straight through it -- same bug found project-wide,
+fixed by clamping the fill to the bar's Open when it already gapped past the
+stop (see `FINDINGS_SWING_STRUCTURE.md`'s correction note for the general
+writeup). Re-ran the daily basket (`run_basket_meanrev.py daily`):
+
+| | Before | After |
+|---|---|---|
+| Trades | 148 | 144 (AAPL skipped this run on a transient fetch timeout, not the fix) |
+| Win rate | 37.8% | 38.2% |
+| Avg R | -0.096 | -0.093 |
+| t-stat | -1.29 | -1.22 |
+
+Essentially unchanged -- this strategy already had no live position sizes
+riding on a stop-loss edge case, since the whole point is it has no
+demonstrated edge. **Verdict unchanged: no demonstrated edge at any
+timeframe.**
+
 ## Caveat
 Same as the trend-following findings: the 20 US symbols are correlated, so trade
 counts overstate independent sample size. Same caveat applies at every timeframe.

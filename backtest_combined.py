@@ -182,10 +182,13 @@ def run_combined(symbols, starting_equity=STARTING_EQUITY, risk_pct=RISK_PCT, ve
                 stop_reason = "trailing_stop" if pos.trail_active else "initial_stop"
 
                 fill_price, fill_reason = None, None
+                bar_open = float(row["Open"])
                 if float(row["Low"]) <= pos.emergency_stop:
-                    fill_price, fill_reason = pos.emergency_stop, "emergency_stop"
+                    fill_price = bar_open if bar_open <= pos.emergency_stop else pos.emergency_stop
+                    fill_reason = "emergency_stop"
                 elif float(row["Low"]) <= active_stop:
-                    fill_price, fill_reason = active_stop, stop_reason
+                    fill_price = bar_open if bar_open <= active_stop else active_stop
+                    fill_reason = stop_reason
                 if fill_price is not None:
                     positions.pop(key)
                     pos.exit_date, pos.exit_price, pos.exit_reason = ts, fill_price, fill_reason
@@ -250,7 +253,8 @@ def run_combined(symbols, starting_equity=STARTING_EQUITY, risk_pct=RISK_PCT, ve
 
                 fill_price = None
                 if float(row["Low"]) <= pos.trail_stop:
-                    fill_price = pos.trail_stop
+                    bar_open = float(row["Open"])
+                    fill_price = bar_open if bar_open <= pos.trail_stop else pos.trail_stop
                 if fill_price is not None:
                     positions.pop(key)
                     pos.exit_date, pos.exit_price, pos.exit_reason = ts, fill_price, "trailing_stop"

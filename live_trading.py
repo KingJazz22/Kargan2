@@ -1,9 +1,35 @@
-"""Unified live/paper trading runner: Breakout Hunter (daily) + Multi-Timeframe
-RSI+Stochastic v2 (4H execution + Daily confirm, TSL-only exit, VWAP(200)
-trend filter) + PCSE (4H, SL=12x/TP=BB(3.0std)) sharing ONE Alpaca paper
-account -- the three validated strategies from this project (Grid-Martingale
-deliberately excluded -- its own FINDINGS_GRID_MARTINGALE.md says "still not
-ready for live paper trading").
+"""Unified live/paper trading runner: Breakout Hunter (daily) + PCSE (4H,
+SL=12x/TP=BB(3.0std)) + Swing-Structure Breakout (daily, structure-confirmed)
+sharing ONE Alpaca paper account -- the three validated strategies from this
+project (Grid-Martingale deliberately excluded -- its own
+FINDINGS_GRID_MARTINGALE.md says "still not ready for live paper trading";
+the swing-structure pullback variant and every other researched strategy --
+Channel MACD, options spreads, mean reversion, the 1m-anchored
+MTF3/RSI/Stoch-threshold sweeps -- are excluded because their own FINDINGS_*.md
+either found no real edge or explicitly flagged the result as too preliminary
+to trade).
+
+Multi-Timeframe RSI+Stochastic v2 (4H execution + Daily confirm, TSL-only
+exit, VWAP(200) trend filter) is wired in (`run_mtf` below) but its new
+entries are DISABLED via MTF_ENTRIES_DISABLED -- see that flag's comment.
+Three independent re-tests (original 10.5yr Alpaca deep history; this
+project's shared-capital-pool combined-system engine on the same data;
+a vectorbt/yfinance-sourced re-run after the project-wide gap-through-fill
+bug fix) have now all found the SAME thing: t stays in the +1.0 to +1.9
+range, never clearing this project's own t>2 significance bar, across every
+data source and window tried. The code path is kept live (not deleted) only
+so it keeps managing any already-open MTF position via the same
+halt-new-entries pattern the circuit breaker uses -- there are currently none.
+
+Swing-Structure Breakout (`strategy_swing_breakout.py`) is treated with full
+parity to Breakout Hunter/MTF/PCSE (same risk_pct, same circuit
+breaker/throttle/partial-profit machinery) rather than Orland's reduced-risk
+side-account treatment -- FINDINGS_SWING_STRUCTURE.md's own verdict is "treat
+it the way Breakout Hunter is treated," and its validation (in-sample t=4.41,
+out-of-sample t≈3.0, OOS independently significant on its own) is stronger
+than Breakout Hunter's own (OOS came back flat there). Same US-equities-only
+universe as Breakout Hunter (SYMBOLS) -- FINDINGS_BREAKOUT.md found no crypto
+edge, and this strategy's own validation never tested crypto either.
 
 Account-level risk management (added after scavenging two other Railway bots
 before retiring them -- see commit history): a peak-equity circuit breaker, a
@@ -51,12 +77,19 @@ import argparse
 from datetime import datetime
 
 import pandas as pd
+from indicators_core import atr
 
 import broker_alpaca as broker
 import strategy_breakout as strat_bo
 import strategy_mtf as strat_mtf
 import strategy_pcse_final as strat_pcse
+import strategy_swing_breakout as strat_swing
 from basket import US_SYMBOLS
+from orland_ewz import data_fetch_alpaca as orland_data
+from orland_ewz import elder_exits, elder_strategy
+from orland_ewz import levels as orland_levels
+from orland_ewz import mtf_score as orland_mtf_score
+from orland_ewz import strategy_s1
 from state_store import load_state, save_state
 from test_mtf_oos_symbols import OOS_US_SYMBOLS
 
@@ -91,6 +124,14 @@ MTF_PARAMS = {
     "trend_filter_period": 200, "trend_filter_bar_hours": 24, "trend_filter_type": "vwap",
 }
 
+# MTF v2 has never cleared this project's t>2 significance bar across three
+# independent re-tests (see module docstring). Halts NEW entries only --
+# `run_mtf` keeps running so it still manages any already-open MTF position
+# (there are none as of the date this flag was added), same pattern as the
+# circuit breaker's halt_entries. Flip back to False if a future re-test
+# clears the bar.
+MTF_ENTRIES_DISABLED = True
+
 # Circuit breaker: halt NEW entries (existing positions still get managed --
 # trails still raised, PCSE take-profits still taken) once equity draws down
 # this much from its running peak. New entries resume once equity recovers.
@@ -108,6 +149,24 @@ RISK_THROTTLE_CONSEC_LOSSES = 3
 # the existing trailing stop.
 PARTIAL_PROFIT_R = 1.2
 PARTIAL_PROFIT_FRACTION = 0.3
+
+# --- OrlandMagics EWZ integration -------------------------------------------
+# Two strategies ported from a separate, much-less-validated project
+# (OrlandMagics) -- neither clears this project's usual bar (t>=3.40,
+# in/out-of-sample, walk-forward, Monte Carlo). Wired in anyway at the user's
+# explicit request, but given their own account/circuit breaker rather than
+# full parity with breakout/mtf/pcse, so a bad run here can't eat into the
+# budget the vetted strategies depend on -- see orland_ewz/ for the ported
+# modules and the plan/memory notes for the full validation-gap discussion.
+ORLAND_SYMBOL = "EWZ"
+ORLAND_RISK_PCT = RISK_PCT * 0.5  # half the vetted strategies' per-trade risk
+# Halt NEW orland entries (existing orland positions still get managed) after
+# this many closed EWZ losses in a row, tracked in state["orland_trade_log"]
+# -- completely separate from the main risk_throttle/trade_log above. Orland
+# losses can never trip the breaker that protects breakout/mtf/pcse's
+# budget, and vice versa; the shared account-level circuit breaker/daily-loss
+# gate still applies to everyone, orland included (see main()).
+ORLAND_CONSEC_LOSS_HALT = 3
 
 
 def place_entry(strategy, symbol, qty_hint_price, initial_stop, atr_at_signal, equity, risk_pct, extra=None):
@@ -197,10 +256,11 @@ def check_partial_profit(symbol, strategy, s, current_price, args):
     s["partial_taken"] = True
 
 
-def record_closed_trade(state, s, exit_price):
-    """Logs an R-multiple outcome for the rolling-expectancy risk throttle.
-    Only full closes are logged (not partial profit-takes) to avoid
-    double-counting a single position's outcome."""
+def record_closed_trade(state, s, exit_price, log_key="trade_log"):
+    """Logs an R-multiple outcome for the rolling-expectancy risk throttle
+    (or, for orland strategies, their own separate consecutive-loss halt --
+    see log_key). Only full closes are logged (not partial profit-takes) to
+    avoid double-counting a single position's outcome."""
     initial_stop = s.get("initial_stop")
     if initial_stop is None:
         return  # pre-existing lot from before this field existed
@@ -208,9 +268,21 @@ def record_closed_trade(state, s, exit_price):
     if r_distance <= 0:
         return
     r_multiple = (exit_price - s["entry_price"]) / r_distance
-    log = state.setdefault("trade_log", [])
+    log = state.setdefault(log_key, [])
     log.append({"r": r_multiple, "win": r_multiple > 0})
     del log[:-200]  # keep bounded; no-op while the log is still short
+
+
+def orland_entries_halted(state) -> bool:
+    """True once the last ORLAND_CONSEC_LOSS_HALT closed orland trades were
+    all losses. Self-clearing: the moment a win lands in that trailing
+    window, this goes False again -- no separate reset flag needed, unlike
+    the main risk_throttle's peak-equity reset (this is a hard halt on new
+    entries, not a size cut, so it doesn't need the same restore condition)."""
+    log = state.get("orland_trade_log", [])
+    return len(log) >= ORLAND_CONSEC_LOSS_HALT and all(
+        not t["win"] for t in log[-ORLAND_CONSEC_LOSS_HALT:]
+    )
 
 
 def update_risk_throttle(state, equity, peak_equity):
@@ -262,6 +334,46 @@ def run_breakout(state, equity, risk_pct, halt_entries, args):
             if args.dry_run or halt_entries:
                 continue
             entry = place_entry("breakout", symbol, float(row["Close"]), initial_stop, atr_sig, equity, risk_pct)
+            if entry:
+                state["positions"][key] = entry
+
+
+def run_swing_breakout(state, equity, risk_pct, halt_entries, args):
+    """Structure-confirmed breakout (FINDINGS_SWING_STRUCTURE.md), same daily
+    cadence and two-stage stop shape as run_breakout -- deliberately uses its
+    own cursor key ("last_daily_date_swing") in the shared per-symbol cursor
+    dict rather than breakout's "last_daily_date", since main() runs both in
+    the same pass and sharing a key would make this strategy see "already
+    processed today" on its very first check of the day."""
+    print("\n--- Swing-Structure Breakout (daily, structure-confirmed) ---")
+    bars = broker.fetch_daily_bars(SYMBOLS)
+
+    for symbol, df in bars.items():
+        if len(df) < 2 * strat_swing.SWING_LEFT + 2 * strat_swing.SWING_RIGHT + 50:
+            continue
+        prepared = strat_swing.prepare(df)
+        row = prepared.iloc[-1]
+        today_str = str(prepared.index[-1].date())
+        cursor = state["cursors"].setdefault(symbol, {})
+        key = f"{symbol}|swing_breakout"
+
+        # manage existing position (tracks its extreme via High, matching backtest_swing_breakout.py)
+        if key in state["positions"]:
+            s = state["positions"][key]
+            check_partial_profit(symbol, "swing_breakout", s, float(row["Close"]), args)
+            update_trail(symbol, "swing_breakout", s, row, float(row["High"]), strat_swing.TRAIL_ATR_MULT, strat_swing.TRAIL_ACTIVATE_ATR, args)
+
+        if cursor.get("last_daily_date_swing") == today_str:
+            continue  # already processed today's bar
+        cursor["last_daily_date_swing"] = today_str
+
+        if key not in state["positions"] and bool(row["long_entry"]):
+            support, atr_sig = float(row["support"]), float(row["atr"])
+            initial_stop = support - strat_swing.INITIAL_STOP_ATR_BUFFER * atr_sig
+            print(f"  {symbol}: SWING BREAKOUT entry signal" + (" (entries halted)" if halt_entries else ""))
+            if args.dry_run or halt_entries:
+                continue
+            entry = place_entry("swing_breakout", symbol, float(row["Close"]), initial_stop, atr_sig, equity, risk_pct)
             if entry:
                 state["positions"][key] = entry
 
@@ -375,6 +487,150 @@ def run_pcse(state, equity, risk_pct, halt_entries, args):
                 state["positions"][key] = entry
 
 
+def run_orland_s1(state, equity, halt_entries, args):
+    """System 1 (MTF sync + W-formation), ported from OrlandMagics -- see
+    orland_ewz/strategy_s1.py's module docstring for what was dropped in the
+    port. Long-only, like every other strategy in this file: this project's
+    live infra only ever submits BUY-then-SELL-stop orders, so a "down"
+    signal from strategy_s1 is simply skipped rather than shorted."""
+    print("\n--- Orland System 1 (MTF+W-formation, EWZ) ---")
+    timeframe_data = orland_data.get_multi_timeframe(ORLAND_SYMBOL)
+    daily_df = timeframe_data.get("1D")
+    if daily_df is None or daily_df.empty:
+        return
+    levels_by_tf = {tf: orland_levels.compute_levels(strategy_s1.trim_for_patterns(df))
+                     for tf, df in timeframe_data.items() if df is not None and len(df) > 0}
+
+    key = f"{ORLAND_SYMBOL}|orland_s1"
+    cursor = state["cursors"].setdefault(ORLAND_SYMBOL, {})
+
+    if key in state["positions"]:
+        s = state["positions"][key]
+        position = strategy_s1.Position(
+            symbol=ORLAND_SYMBOL, direction=s.get("direction", "up"), entry_price=s["entry_price"],
+            stop=s["current_stop"], initial_stop=s["initial_stop"], entry_atr=s["atr_at_entry"],
+        )
+        position.trail_active = s.get("trail_active", False)
+        position.extreme_price = s.get("extreme", s["entry_price"])
+
+        daily_levels = levels_by_tf.get("1D", {})
+        atr_val = float(atr(daily_df["High"], daily_df["Low"], daily_df["Close"]).iloc[-1])
+        bar = daily_df.iloc[-1]
+        regimes = strategy_s1.compute_regimes(timeframe_data)
+        mtf = (orland_mtf_score.compute_mtf_score(regimes, symbol=ORLAND_SYMBOL)
+               if len(regimes) == len(timeframe_data) else None)
+        context = {"atr_val": atr_val, "levels": daily_levels, "mtf": mtf}
+
+        exit_rule = strategy_s1.EXIT_RULES["regime_flip_plus_atr_trail"]
+        reason = exit_rule(position, bar, context)
+
+        if reason in ("regime_flip", "consolidation_zone"):
+            # Proactive close -- not a price-based stop, so the resting stop
+            # order on the broker side wouldn't catch this on its own.
+            print(f"  {ORLAND_SYMBOL}/orland_s1: {reason} -- closing")
+            if not args.dry_run:
+                broker.cancel_order(s["stop_order_id"])
+                fill = broker.submit_market_sell(ORLAND_SYMBOL, s["shares"])
+                exit_price = fill["fill_price"] if fill.get("filled") else float(bar["Close"])
+                record_closed_trade(state, s, exit_price, log_key="orland_trade_log")
+            del state["positions"][key]
+        elif position.stop > s["current_stop"]:
+            # Trail raised. A plain "stop" reason (price crossed the resting
+            # stop) needs no action here -- the broker's own stop order
+            # already covers it via main()'s normal reconciliation loop.
+            print(f"  {ORLAND_SYMBOL}/orland_s1: raising stop {s['current_stop']:.2f} -> {position.stop:.2f}")
+            if not args.dry_run:
+                broker.cancel_order(s["stop_order_id"])
+                s["stop_order_id"] = broker.submit_stop_sell(ORLAND_SYMBOL, s["shares"], position.stop)
+            s["current_stop"] = position.stop
+            s["trail_active"] = position.trail_active
+            s["extreme"] = position.extreme_price
+
+    # Entry check -- dedupe on the latest closed 5m bar, matching OrlandMagics'
+    # own live_runner.py cursor convention (finer-grained than the daily-only
+    # cursors breakout/mtf use, since this strategy's entries are timed off 5m).
+    pattern_df = timeframe_data.get(strategy_s1.PATTERN_TIMEFRAME)
+    cursor_tf = strategy_s1.PATTERN_TIMEFRAME if pattern_df is not None and not pattern_df.empty else "1D"
+    cursor_df = pattern_df if cursor_tf == strategy_s1.PATTERN_TIMEFRAME else daily_df
+    if cursor_df is None or cursor_df.empty:
+        return
+    latest_ts = cursor_df.index[-1]
+    cursor_key = f"last_{cursor_tf}_orland_s1"
+    if str(cursor.get(cursor_key)) == str(latest_ts):
+        return  # already processed this bar
+    cursor[cursor_key] = str(latest_ts)
+
+    if key not in state["positions"]:
+        signal = strategy_s1.check_entry(ORLAND_SYMBOL, timeframe_data, levels_by_tf)
+        if signal is not None and signal.direction == "up":
+            print(f"  {ORLAND_SYMBOL}: orland_s1 entry signal" + (" (entries halted)" if halt_entries else ""))
+            if not (args.dry_run or halt_entries):
+                atr_val = float(atr(daily_df["High"], daily_df["Low"], daily_df["Close"]).iloc[-1])
+                entry = place_entry("orland_s1", ORLAND_SYMBOL, signal.entry_price, signal.stop,
+                                     atr_val, equity, ORLAND_RISK_PCT, extra={"direction": signal.direction})
+                if entry:
+                    state["positions"][key] = entry
+
+
+def run_orland_elder(state, equity, halt_entries, args):
+    """System 2 (Elder's Triple Screen), ported from OrlandMagics. Long-only,
+    same reasoning as run_orland_s1. Daily cadence -- cursor dedupes on the
+    latest daily bar, matching run_breakout's pattern. Fixed protective stop
+    from entry (the chosen exit rule, adx_fade, never trails), so unlike
+    run_orland_s1 there's no stop-raise branch to handle here."""
+    print("\n--- Orland Elder Triple Screen (EWZ) ---")
+    daily_map = broker.fetch_daily_bars([ORLAND_SYMBOL], lookback_days=800)
+    daily_df = daily_map.get(ORLAND_SYMBOL)
+    if daily_df is None or daily_df.empty:
+        return
+    weekly_df = orland_data.drop_unclosed_bar(orland_data.resample_ohlc(daily_df, "W"), "1W")
+
+    key = f"{ORLAND_SYMBOL}|orland_elder"
+    cursor = state["cursors"].setdefault(ORLAND_SYMBOL, {})
+
+    if key in state["positions"]:
+        s = state["positions"][key]
+        position = elder_strategy.ElderPosition(
+            direction=s.get("direction", "up"), entry_price=s["entry_price"],
+            stop=s["current_stop"], initial_stop=s["initial_stop"], entry_atr=s["atr_at_entry"],
+        )
+        position.trail_active = s.get("trail_active", False)
+        position.extreme_price = s.get("extreme", s["entry_price"])
+
+        atr_val = float(atr(daily_df["High"], daily_df["Low"], daily_df["Close"]).iloc[-1])
+        bar = daily_df.iloc[-1]
+        context = {"atr_val": atr_val, "df": daily_df}
+        exit_rule = elder_exits.make_adx_fade(threshold=25)  # the cross-asset-generalizing pick, see FINDINGS
+        reason = exit_rule(position, bar, context)
+
+        if reason == "adx_fade":
+            print(f"  {ORLAND_SYMBOL}/orland_elder: adx_fade -- closing")
+            if not args.dry_run:
+                broker.cancel_order(s["stop_order_id"])
+                fill = broker.submit_market_sell(ORLAND_SYMBOL, s["shares"])
+                exit_price = fill["fill_price"] if fill.get("filled") else float(bar["Close"])
+                record_closed_trade(state, s, exit_price, log_key="orland_trade_log")
+            del state["positions"][key]
+        # reason == "stop" needs no action here -- the broker's resting stop
+        # order + main()'s normal reconciliation loop already cover it.
+
+    today_str = str(daily_df.index[-1].date())
+    if cursor.get("last_daily_orland_elder") == today_str:
+        return
+    cursor["last_daily_orland_elder"] = today_str
+
+    if key not in state["positions"]:
+        signal = elder_strategy.check_entry(daily_df, weekly_df)
+        if signal is not None and signal.direction == "up":
+            print(f"  {ORLAND_SYMBOL}: orland_elder entry signal" + (" (entries halted)" if halt_entries else ""))
+            if not (args.dry_run or halt_entries):
+                atr_val = float(atr(daily_df["High"], daily_df["Low"], daily_df["Close"]).iloc[-1])
+                entry = place_entry("orland_elder", ORLAND_SYMBOL, signal.entry_price, signal.stop,
+                                     atr_val, equity, ORLAND_RISK_PCT, extra={"direction": signal.direction})
+                if entry:
+                    state["positions"][key] = entry
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
@@ -386,6 +642,7 @@ def main():
     state.setdefault("positions", {})
     state.setdefault("cursors", {})
     state.setdefault("trade_log", [])
+    state.setdefault("orland_trade_log", [])
 
     equity = broker.get_equity()
     broker_positions = broker.get_open_positions()
@@ -400,7 +657,8 @@ def main():
         status = broker.get_order_status(s["stop_order_id"])
         if status["status"] == "filled":
             print(f"  {key}: stopped out @ {status['fill_price']:.2f} -- clearing local state")
-            record_closed_trade(state, s, status["fill_price"])
+            log_key = "orland_trade_log" if key.endswith(("|orland_s1", "|orland_elder")) else "trade_log"
+            record_closed_trade(state, s, status["fill_price"], log_key=log_key)
             del state["positions"][key]
         elif status["status"] in ("canceled", "expired", "rejected"):
             print(f"  {key}: stop order {status['status']} unexpectedly -- clearing local state, check the account manually")
@@ -432,9 +690,25 @@ def main():
     if risk_pct < RISK_PCT:
         print(f"  risk throttled to {risk_pct:.2%} of equity per trade (recent performance below bar)")
 
+    orland_halt = halt_entries or orland_entries_halted(state)
+    if orland_halt and not halt_entries:
+        print(f"\n!!! ORLAND HALT: {ORLAND_CONSEC_LOSS_HALT} consecutive EWZ losses -- "
+              f"new orland entries halted (breakout/mtf/pcse unaffected)")
+
     run_breakout(state, equity, risk_pct, halt_entries, args)
-    run_mtf(state, equity, risk_pct, halt_entries, args)
+    run_swing_breakout(state, equity, risk_pct, halt_entries, args)
+    any_open_mtf = any(k.endswith("|mtf") for k in state["positions"])
+    if MTF_ENTRIES_DISABLED and not any_open_mtf:
+        # Skip the fetch entirely: no position to manage and no new entries
+        # will ever be placed, so there's nothing for this call to do --
+        # avoids ~minutes of Alpaca API load every run (400-day, 40-symbol
+        # 4H-bar fetch, slow under IEX free-tier pagination) for zero benefit.
+        print("\n--- MTF v2: entries disabled, no open position -- skipped ---")
+    else:
+        run_mtf(state, equity, risk_pct, halt_entries or MTF_ENTRIES_DISABLED, args)
     run_pcse(state, equity, risk_pct, halt_entries, args)
+    run_orland_s1(state, equity, orland_halt, args)
+    run_orland_elder(state, equity, orland_halt, args)
 
     if not args.dry_run:
         save_state(state)

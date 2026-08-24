@@ -16,6 +16,19 @@
 > short fails decisively on every timeframe tested; daily remains too
 > sample-starved to trust either way. **Final code**: `strategy_pcse_final.py`
 > + `backtest_pcse_final.py`, long-only, hourly or 4h.
+>
+> **Third update, later session:** a stock-split data bug fixed in
+> `alpaca_fetch.py` (unrelated options-spread research surfaced it — see
+> `FINDINGS_OPTIONS_SPREADS.md` section 5) meant every result above this
+> line was computed on RAW, unadjusted Alpaca bars — a real risk for this
+> basket specifically, since it includes five 2016-2026 stock-splitters
+> (AAPL, TSLA, NVDA, GOOGL, AMZN). See "Update 3: Re-run on Corrected
+> (Split/Dividend-Adjusted) Data" at the end of this file for the full
+> re-run. **Bottom line: the verdict is unchanged, and if anything
+> slightly stronger** (1h t=7.11→7.18, 4h t=3.87→5.10) — the bug was real
+> but turned out not to materially bias this particular model's aggregate
+> stats. Safe to keep trading the existing "long-only, 1h or 4h, SL=12x/
+> TP=BB(3.0std)" recommendation; no config change needed.
 
 ## What this is
 
@@ -565,3 +578,199 @@ in either direction on that timeframe.
 
 Reproduce via: `python prep_dual_entries_cache.py [1h|4h|daily] full` (cache,
 one-time per timeframe) then `python run_sl_retest.py [1h|4h|daily]`.
+
+---
+
+## Update 3: Re-run on Corrected (Split/Dividend-Adjusted) Data
+
+### Why this was needed
+
+Every result above this section was computed from Alpaca stock bars fetched
+via `alpaca_fetch.py`. A bug in that module -- fixed in a later session
+while doing unrelated options-spread research (see
+`FINDINGS_OPTIONS_SPREADS.md` section 5) -- meant every stock fetch used
+Alpaca's default RAW (unadjusted) bars instead of split/dividend-adjusted
+ones. A stock split shows up in RAW data as a fake single-day price
+collapse (e.g. a 4-for-1 split reads as a -75% one-day return), which
+corrupts any statistic computed off Close -- directly relevant here, since
+PCSE's entries are built entirely from candle geometry ratios and rolling
+return/volatility z-scores (`indicators_candle.py`).
+
+This basket (`basket.US_SYMBOLS`) includes five names that split during the
+2016-2026 window: **AAPL** (4-for-1, Aug 2020), **TSLA** (5-for-1 Aug 2020,
+3-for-1 Aug 2022), **NVDA** (4-for-1 Jul 2021, 10-for-1 Jun 2024),
+**GOOGL** (20-for-1, Jul 2022), **AMZN** (20-for-1, Jun 2022). Each of
+these would have fed one fake multi-day crash into that symbol's candle
+features, rolling z-scores, and forward-return labels, concentrated in
+whichever walk-forward fold happened to cover the split date. The fix
+(`adjustment=Adjustment.ALL` in `alpaca_fetch.fetch_stock`) now matches
+`data.py`'s yfinance fetchers, which always used `auto_adjust=True`.
+
+Fixing the raw bars wasn't enough on its own -- this strategy's own dev
+tooling layers two further disk caches on top of the raw OHLCV
+(`.cache_entries_1h` / `.cache_dual_entries_{1h,4h,daily}`, built by
+`prep_entries_cache.py` / `prep_dual_entries_cache.py`), and both skip
+re-fetching if a cached file already exists. Confirmed via file mtimes
+that every stock-symbol entry in all of these caches predated the fix by a
+day, so all three cache layers had to be cleared for the 20 US stock
+symbols (crypto symbols were never affected -- `fetch_crypto` has no
+adjustment concept -- and were left untouched) before re-running.
+
+### Method
+
+Cleared the stale stock-symbol cache files, then reproduced this document's
+exact confirmation pipeline against freshly-fetched, split/dividend-adjusted
+data: `prep_entries_cache.py 1h full` -> `run_exit_final.py` (1h primary
+confirmation + split-sample check), then `prep_dual_entries_cache.py 1h
+full` / `4h full` -> `run_sl_retest.py 1h` / `4h` (long+short SL sweep,
+both timeframes). No code was changed -- same model, same exit rule, same
+scripts, only the underlying price data differs.
+
+### Results: essentially unchanged, if anything modestly stronger
+
+**1h primary confirmation** (SL=12x, TP=BB(3.0std)):
+
+| | n | avg_R | win% | PF | t-stat |
+|---|---|---|---|---|---|
+| Original (corrupted data) | 3,821 | 0.082 | 75.5% | 1.34 | 7.11 |
+| Corrected data | 3,863 | 0.082 | 75.7% | 1.34 | **7.18** |
+
+Split-sample check, corrected data: first half n=2,220 avg_R=0.110 t=7.21
+win%=77.1% PF=1.49; second half n=1,638 avg_R=0.046 t=2.64 win%=73.8%
+PF=1.18 -- matches the original's first/second-half pattern (t=7.10/2.61)
+almost exactly, including the same recent-half decay.
+
+**4h confirmation** (SL=12x, TP=BB(3.0std), 26-symbol basket):
+
+| | n | avg_R | t-stat |
+|---|---|---|---|
+| Original (corrupted data) | 608 | 0.120 | 3.87 |
+| Corrected data | 641 | 0.153 | **5.10** |
+
+4h strengthened more than 1h did -- worth reading with a little caution
+(more trades and a higher avg_R both moved in the favorable direction on
+corrected data, which is what you'd want to see if the fix were pure noise
+removal, but it's also the kind of shift that deserves the same "don't
+over-trust one lucky re-run" skepticism this document applies everywhere
+else; the 1h result, with 6x the sample size, is the steadier evidence
+either way).
+
+**Short side** (both timeframes, every SL value tested): still fails
+decisively, if anything more so than before.
+
+| | 1h short (SL=12x) | 4h short (best: SL=20x) |
+|---|---|---|
+| Original (corrupted data) | t=-3.80 | t=-2.10 |
+| Corrected data | t=-4.80 | t=-3.15 |
+
+Every SL value on both timeframes was negative in both the original and
+corrected runs -- this was never a marginal call, and corrected data makes
+it less marginal, not more.
+
+**Split-corrupted symbols individually** (1h, SL=12x/TP=BB3.0std, corrected
+data): AAPL n=169 t=+3.20, GOOGL n=82 t=+2.09, AMZN n=133 t=+1.33, NVDA
+n=102 t=+1.27, TSLA n=132 t=-0.92. None of these stand out as an outlier
+relative to the rest of the 27-symbol basket in either direction -- the
+bug was real, but a single corrupted day out of 5,000-13,000 bars per
+symbol turned out to be too small a fraction of this model's rolling
+windows and walk-forward folds to visibly move that symbol's aggregate
+stats. (AMD, previously the only other net-negative symbol in the
+original per-symbol table at -0.81%/t=-0.10, is unaffected by this bug --
+no split in this window -- and reproduces at essentially the same -0.81%/
+t=-0.10 on corrected data, which is a useful sanity check that the
+re-fetch pipeline itself introduced no unrelated drift.)
+
+### Verdict: no change to the recommendation
+
+**The corrected-data re-run reconfirms this document's "Revised final
+recommendation" without modification: trade long-only, on 1h or 4h, with
+SL=12x/TP=BB(3.0std).** The split-adjustment bug was a legitimate,
+serious-looking risk when flagged (raw split-day returns are large enough
+to distort a model trained on return z-scores) and was worth verifying
+rather than assuming away -- but for this specific entry model, the
+verification came back negative: no material change to the pooled
+statistics, the split-sample decay pattern, or any individual split-
+affected symbol's contribution. This is a different outcome from what
+might have been feared, and it should not be read as "the caveat never
+mattered" -- it mattered enough to require an actual re-run to rule out,
+which is what this section did.
+
+One caveat this update does NOT resolve: the exit parameters (SL=12x,
+TP=BB3.0std) were originally selected in-sample against the corrupted
+data. This re-run confirms the SAME parameters still work well on
+corrected data, which is reassuring, but a fully rigorous re-selection
+(re-running the original exit-design search from scratch against
+corrected data, to check whether SL=12x is still the in-sample optimum
+rather than just "still positive") was not done here -- out of scope for a
+data-quality verification, worth doing if this strategy's parameters are
+ever revisited for other reasons.
+
+Reproduce via: delete the stale entries under `.cache_alpaca`,
+`.cache_entries_1h`, and `.cache_dual_entries_{1h,4h}` for any symbol whose
+cache predates the `alpaca_fetch.py` fix, then re-run the same commands as
+Update 1/Update 2 above.
+
+---
+
+## Update 4: Corrected 2026-08-24 -- gap-through stop-fill bug fixed, final config re-run
+
+### The bug
+Both engines behind this document's "final config" verdict --
+`backtest_pcse_final.py` (long/short SL, used by `run_sl_retest.py`) and
+`exit_lab.py` (used by `run_exit_final.py`, the source of this document's
+headline 1h/4h numbers) -- filled the fixed stop-loss at the theoretical
+stop price even on bars that gapped straight through it overnight, the same
+bug found across ~14 backtest engines in this project (root-cause proof:
+`FINDINGS_SWING_STRUCTURE.md`'s correction note). The take-profit leg
+(Bollinger-band touch) was already gap-aware in both engines and untouched.
+Fixed both independently -- clamp the SL fill to the bar's Open whenever it
+already gapped past the stop.
+
+### 1h primary confirmation (`run_exit_final.py`, SL=12x/TP=BB3.0std, 27 symbols)
+| | n | avg_R | win% | PF | t-stat |
+|---|---|---|---|---|---|
+| Before (corrected-data baseline) | 3,863 | 0.082 | 75.7% | 1.34 | 7.18 |
+| After (gap-fill fixed) | 3,863 | 0.081 | 75.7% | 1.34 | **7.06** |
+
+Split-sample: first half n=2,220 avg_R=0.109 t=**7.11** (was 7.21), win%=77.1%,
+PF=1.48; second half n=1,638 avg_R=0.044 t=**2.57** (was 2.64), win%=73.8%,
+PF=1.18 -- both essentially unchanged.
+
+### 1h short side + SL sweep (`run_sl_retest.py 1h`, `backtest_pcse_final.py`)
+Long SL=12x reproduces the exit_lab result almost exactly (n=3,863,
+avg_R=0.081, t=7.06) -- a useful independent cross-check, since the two
+engines were fixed separately and agree to the third decimal. Short side
+(SL=12x): t=-4.91 (was -4.80) -- still decisively negative, if anything
+slightly more so.
+
+### 4h confirmation (`run_sl_retest.py 4h`, 26-symbol basket)
+| | n | avg_R | t-stat |
+|---|---|---|---|
+| Long SL=12x, before | 641 | 0.153 | 5.10 |
+| Long SL=12x, after | 641 | 0.151 | **5.02** |
+| Short (best SL), before | -- | -- | -4.80 to -2.10 range |
+| Short (best SL), after | -- | -- | -3.15 to -3.91 range |
+
+### Why the effect is so small here
+PCSE's carried-forward config uses a very wide fixed stop (12x entry-time
+return-stdev) -- gap-through events are rare relative to a tight ATR-based
+stop, so the bug barely moved this strategy's numbers, unlike the
+pure-trailing-stop strategies elsewhere in this project (Swing-Structure
+Breakout, Breakout Hunter, MTF3) where the correction was much larger.
+
+### Original (superseded) adaptive-trail engine, for completeness
+`backtest_candle_prob.py` (the ORIGINAL adaptive-trailing-stop exit, already
+disproven and superseded by the fixed-SL/TP config above) has the same
+trail-stop fill bug, also fixed. Re-ran the primary hourly confirmation
+(`run_basket_candle_prob.py 1h long_only`): n=9,278 (was 9,158), avg_R=-0.194
+(was -0.149), t=**-35.11** (was -24.6) -- even more decisively negative
+post-fix. No change to this document's verdict on that superseded design
+("DISPROVEN AS BUILT... do not deploy"); it was never going to become
+positive from this fix and didn't.
+
+### Verdict: unchanged. Trade long-only, 1h or 4h, SL=12x/TP=BB(3.0std)
+Every number in this document's "final config" recommendation reproduces to
+within a few hundredths of a t-stat point post-fix. **This is the strongest
+survival of any strategy checked in this project's gap-fill correction
+pass** -- PCSE's live/paper-trading validation (`backtest_pcse_final.py`,
+wired into `live_trading.py`) stands exactly as it did before this fix.

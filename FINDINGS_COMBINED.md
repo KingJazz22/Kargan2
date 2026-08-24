@@ -84,6 +84,40 @@ trades somewhat arbitrarily rather than keeping the best ones. `live_breakout.py
 safety ceiling that shouldn't materially constrain normal operation, based on
 this window.
 
+## Corrected 2026-08-24: gap-through stop-fill bug fixed, uncapped baseline re-run
+`backtest_combined.py` reused `backtest_breakout.py`'s and `backtest_mtf.py`'s
+stop-fill logic, both of which filled at the theoretical stop price even on
+gap-through bars -- fixed as part of the project-wide correction (see
+`FINDINGS_SWING_STRUCTURE.md`). This file's MTF 1H+4H data also hit an
+unrelated pandas-version bug (`pd.Timedelta` arithmetic upcasting the index's
+datetime64 unit, breaking `merge_asof`) that was blocking this exact script
+from running at all in the current environment -- fixed in `strategy_mtf.py`
+(index-unit normalization before both `merge_asof` calls), since it's a data-
+alignment issue unrelated to fill prices but was a hard blocker for
+re-validating this file.
+
+Re-ran the uncapped baseline (`max_concurrent_positions=None`, same 40-symbol
+universe). Note this script's MTF leg always covers "the last ~2 years from
+whenever it's run" (Yahoo's hourly cap), so some of the difference below is
+window drift, not purely the fix -- same caveat this document already flags
+for the position-count-cap table:
+
+| | Before | After |
+|---|---|---|
+| Trades | 524 | 505 |
+| Breakout avg R / t | +0.073 / 0.70 | +0.027 / 0.25 |
+| MTF avg R / t | +0.064 / 1.46 | +0.017 / 0.34 |
+
+Both legs weaken post-fix, consistent with the direction seen everywhere
+else in this project (removing unrealistically generous stop fills lowers
+avg R). Neither leg was independently significant before this fix either
+(Breakout t=0.70, MTF t=1.46 -- already "not significant on its own" was the
+headline finding of this document), so **the qualitative verdict is
+unchanged: capital crowding dilutes both strategies below their standalone
+edges, and this combined-portfolio configuration was never independently
+validated as significant to begin with.** The already-weak numbers get
+weaker, not flip in direction.
+
 ## Caveats
 - **Window**: capped at ~2 years by MTF's 1H data limit (Yahoo). Breakout
   Hunter's own validation used the full 6.5-year daily history -- this test

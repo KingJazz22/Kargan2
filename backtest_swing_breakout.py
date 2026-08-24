@@ -1,19 +1,18 @@
-"""Event-driven backtester for the Breakout Hunter strategy.
+"""Event-driven backtester for the structure-confirmed breakout strategy.
 
 Long only. Same lookahead-safe convention as the other engines: signal on
 close, execute at next bar's open; stops are resting orders, fill intrabar.
-Two-stage stop (see strategy_breakout.py for why): a structural initial stop
-below the pre-breakout consolidation low, then an ATR trailing stop that
-takes over once the trade has 1x ATR of profit cushion. This is the only exit
--- the spec names no other exit condition.
+Two-stage stop, reused unchanged from backtest_breakout.py (Breakout Hunter):
+a structural initial stop below the pre-breakout `support` swing low, then an
+ATR trailing stop that takes over once the trade has 1x ATR of profit cushion.
 """
 from dataclasses import dataclass
 
 import pandas as pd
 
-import strategy_breakout as strat
+import strategy_swing_breakout as strat
 
-WARMUP_BARS = strat.PERCENTILE_LOOKBACK + 50
+WARMUP_BARS = 2 * strat.SWING_LEFT + 2 * strat.SWING_RIGHT + 50
 
 
 @dataclass
@@ -61,10 +60,9 @@ def run_backtest(df: pd.DataFrame, starting_equity: float = 100_000.0, risk_pct:
             support, atr_at_signal = pending_entry
             entry_price = row["Open"]
             initial_stop = support - strat.INITIAL_STOP_ATR_BUFFER * atr_at_signal
-            # Anchored beyond initial_stop, not independently from entry -- a
-            # squeeze entry has unusually low ATR, so an entry-anchored
-            # emergency stop can end up TIGHTER than the support-based
-            # initial stop, inverting their intended roles (see FINDINGS_BREAKOUT.md).
+            # Anchored beyond initial_stop, not independently from entry -- see
+            # FINDINGS_BREAKOUT.md for why an entry-anchored emergency stop can
+            # invert and become tighter than the structural stop.
             emergency_stop = initial_stop - strat.EMERGENCY_STOP_BUFFER_ATR * atr_at_signal
             stop_distance = entry_price - initial_stop
 

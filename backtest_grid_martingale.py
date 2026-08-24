@@ -249,7 +249,12 @@ def run_backtest(df: pd.DataFrame, starting_equity: float = 100_000.0,
             fired = None
 
             if grid.stop_hit(row):
-                fired = ("grid_stop", grid.stop_price)
+                bar_open = row["Open"]
+                if grid.side == "long":
+                    stop_fill = bar_open if bar_open <= grid.stop_price else grid.stop_price
+                else:
+                    stop_fill = bar_open if bar_open >= grid.stop_price else grid.stop_price
+                fired = ("grid_stop", stop_fill)
 
             elif grid.leg_count - 1 < MAX_LEGS and grid.bars_since_last_leg >= min_bars_between_legs:
                 trigger_price = grid.leg_add_trigger_price()
@@ -279,7 +284,12 @@ def run_backtest(df: pd.DataFrame, starting_equity: float = 100_000.0,
                             fired = ("leg_add", trigger_price)
 
             if fired is None and grid.tp_hit(row):
-                fired = ("take_profit", grid.tp_price)
+                bar_open = row["Open"]
+                if grid.side == "long":
+                    tp_fill = bar_open if bar_open >= grid.tp_price else grid.tp_price
+                else:
+                    tp_fill = bar_open if bar_open <= grid.tp_price else grid.tp_price
+                fired = ("take_profit", tp_fill)
 
             if fired is not None and fired[0] in ("grid_stop", "take_profit"):
                 gt = GridTrade.from_grid(grid, date, fired[1], fired[0])

@@ -138,7 +138,8 @@ def simulate_exit(rows: pd.DataFrame, sl_mult: float, tp_rule: tuple, starting_e
         if position is not None:
             fill_price, reason = None, None
             if row["Low"] <= position["sl_price"]:
-                fill_price, reason = position["sl_price"], "stop_loss"
+                fill_price = row["Open"] if row["Open"] <= position["sl_price"] else position["sl_price"]
+                reason = "stop_loss"
             elif tp_kind == "price":
                 target = tp_fn(position["entry_price"], position["ret_stdev_at_entry"], row)
                 if target is not None and row["High"] >= target:

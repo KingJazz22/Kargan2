@@ -7,3 +7,5 @@ live_state.json
 .cache_entries_*/
 .cache_dual_entries_*/
 .claude/
+.venv/
+data_cache/

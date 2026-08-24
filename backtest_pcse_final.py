@@ -124,7 +124,8 @@ def simulate_rows(rows: pd.DataFrame, starting_equity: float = 100_000.0, risk_p
 
                 fill_price, reason = None, None
                 if row["Low"] <= sl_price:
-                    fill_price, reason = sl_price, "stop_loss"
+                    fill_price = row["Open"] if row["Open"] <= sl_price else sl_price
+                    reason = "stop_loss"
                 elif tp_price is not None and row["High"] >= tp_price:
                     fill_price = row["Open"] if row["Open"] >= tp_price else tp_price
                     reason = "take_profit"
@@ -138,7 +139,8 @@ def simulate_rows(rows: pd.DataFrame, starting_equity: float = 100_000.0, risk_p
 
                 fill_price, reason = None, None
                 if row["High"] >= sl_price:
-                    fill_price, reason = sl_price, "stop_loss"
+                    fill_price = row["Open"] if row["Open"] >= sl_price else sl_price
+                    reason = "stop_loss"
                 elif tp_price is not None and row["Low"] <= tp_price:
                     fill_price = row["Open"] if row["Open"] <= tp_price else tp_price
                     reason = "take_profit"

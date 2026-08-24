@@ -158,6 +158,164 @@ should be reconsidered or disabled given this result (see also
 deep window and lost -20.7% overall, entirely because MTF's losses
 outweighed Breakout Hunter's gains).
 
+## VWAP(200) trend filter fix (2026-08-03) and its full-sample deep retest (2026-08-20)
+Same-day follow-up to the deep-history reversal above (git commit `a635432`):
+swept SMA/EMA/VWAP x {50,100,150,200}-day trend filters -- only take long
+entries with price above the trend line -- using an in-sample (US_SYMBOLS)
+screen / out-of-sample (OOS_US_SYMBOLS) confirmation split, guarding against
+the same overfitting trap the mean-reversion 30m sweep fell into. Despite the
+script's name suggesting a return to the old short window, this sweep
+(`sweep_mtf_trend_filter.py`, via `simulate_live_system.py`) already used the
+same deep 10.5yr Alpaca history as the reversal above -- it was just never
+written up here at the time, which left a real documentation gap (the fix
+looked untested against the exact history that disproved the baseline, when
+it had actually been tested against it from day one).
+
+**Split screen result** (`sweep_mtf_trend_filter.log`): `sma_200` and
+`ema_150` looked best in-sample but collapsed out-of-sample (classic overfit,
+t falling from ~1.2 to ~0.1); **`vwap_200` was the only filter of 12 tested
+that held the same sign in-sample -> out-of-sample** (t=+1.20, n=61 ->
+t=+0.62, n=62). This became the live default (`live_trading.py`'s
+`MTF_PARAMS`).
+
+**Gap closed (2026-08-20)**: the split screen above never reported the
+*combined* 40-symbol figure at full statistical power the way the original
+disproving retest did (n=861) -- only the 20/20 IS/OOS halves separately.
+Re-ran baseline vs. `vwap_200` on the full 40-symbol shared-capital portfolio
+(`retest_mtf_vwap_full.py`, same `simulate_live_system.run_combined` engine,
+same 2016-02->2026-07 window):
+
+| | Trades | Win rate | Avg R | t-stat | Portfolio total return | Max DD |
+|---|---|---|---|---|---|---|
+| Baseline (unfiltered) | 789 | 35.9% | -0.067 | -2.35 | +5.0% | -34.9% |
+| VWAP(200)-filtered | 121 | 45.5% | +0.084 | +0.98 | +96.0% | -10.1% |
+
+Baseline reconfirms the original disproof (n=789 here vs. 861 originally --
+small difference from a fresh data pull/date alignment, same sign and
+significance). The VWAP(200) filter fixes the *sign* on the same deep,
+multi-regime history it was previously untested against in writeup form: avg
+R flips from -0.067 to +0.084, and critically the win rate rises enough
+(35.9% -> 45.5%) that this isn't just fewer, luckier trades -- and the whole
+shared portfolio's drawdown profile improves dramatically (-34.9% -> -10.1%
+max DD) alongside the return (+5.0% -> +96.0%), because MTF's uncontrolled
+countertrend losses were previously the main thing dragging Breakout Hunter's
+gains down (see `simulate_live_system.py`'s original -20.7% combined result).
+
+**Still not independently confirmed**: t=+0.98 on n=121 trades does not
+clear this project's significance bar on its own -- the filter removes ~85%
+of baseline's entries (only oversold dips *above* the 200-day VWAP still
+qualify), so this is a real, large improvement in a small, thin sample, not
+a statistically airtight reversal. Read as: **the fix is real and directionally
+verified on the correct (deep, multi-regime) history, but MTF v2+VWAP(200)
+should still be treated as "leaning positive, unconfirmed," the same tier as
+Grid-Martingale v1.2 and MTF3's 1m-anchored combos** -- not promoted to
+"confirmed" alongside Breakout Hunter or PCSE.
+
+## Corrected 2026-08-24: gap-through stop-fill bug fixed -- partial re-validation, one run blocked
+
+### The bug and what was fixed
+`backtest_mtf.py`'s trailing-stop fill (both long and short legs) filled at
+the theoretical stop price even on bars that gapped straight through it --
+the same project-wide bug documented in `FINDINGS_SWING_STRUCTURE.md`.
+Fixed with the standard gap-aware clamp. Separately, `simulate_live_system.py`
+-- the engine actually behind this document's most recent, most decision-
+relevant numbers (the deep-history disproof and the VWAP(200) filter fix,
+both sections above) -- turned out to be an independent reimplementation of
+the same stop-fill logic (both its Breakout leg and its MTF leg), NOT a
+caller of `backtest_mtf.py`, so it did not inherit the fix automatically.
+Fixed separately there too (both legs).
+
+A second, unrelated bug was also found and fixed while attempting to re-run
+these engines: a pandas-version incompatibility (`pd.Timedelta` arithmetic
+upcasting the LTF/HTF index's datetime64 unit, e.g. `[s]` to `[us]`) was
+making every yfinance-1H+4H-sourced `merge_asof` call in `strategy_mtf.py`
+fail outright with "incompatible merge keys" in the current environment --
+unrelated to fill prices, but a hard blocker for re-running anything through
+this path. Fixed by normalizing both indexes' units before each `merge_asof`
+call (`strategy_mtf.py`; the identical pattern in `strategy_mtf3.py` was
+fixed pre-emptively too, since it shares the same join code).
+
+### What was re-validated: standard 1H+4H (Yahoo, ~2yr window), pooled long+short
+`run_basket_mtf.py` (default config, no `long_only` filter, matching this
+document's original Test-1 "Pooled (long+short)" row):
+
+| | Before | After |
+|---|---|---|
+| Trades | 2,638 | 2,678 |
+| Win rate | 36.1% | 33.5% |
+| Avg R | -0.047 | -0.111 |
+| Profit factor | -- | 0.76 |
+| t-stat | -2.47 | **-5.63** |
+
+Already a significant loser before the fix, more decisively so after --
+consistent with every other engine in this project where removing
+unrealistically generous stop fills pushed already-negative results further
+negative, never flipped a negative to positive.
+
+### What could NOT be re-validated this session: the deep-history VWAP(200) run
+The actually-live-relevant config (`live_trading.py`'s current `MTF_PARAMS`)
+is 4H+Daily, TSL-only, VWAP(200) trend filter, tested via
+`retest_mtf_vwap_full.py` -> `simulate_live_system.run_combined()` against
+the full 2016-2026 Alpaca history -- this is the number that actually matters
+for "does MTF v2's live approval still hold." Two attempts to re-run this
+script were made: the first failed outright (missing `python-dotenv` in the
+project's `.venv`; re-run with the system Python instead), the second
+appeared to hang -- after ~13 minutes wall-clock it had accumulated only
+~18 seconds of CPU time (checked via `Get-Process`), meaning it was stuck
+waiting on something (most likely a live network fetch for a symbol/interval
+not already warm in `.cache_alpaca`) rather than computing. It was killed
+without producing a result rather than left to block the rest of this task
+indefinitely.
+
+**This means the specific number that justified keeping MTF v2 live under
+its VWAP(200) filter (t=+0.98, n=121, already flagged as "leaning positive,
+unconfirmed" even before this fix) has NOT been re-confirmed or disproven
+post-fix.** Given every other engine's fix in this project only ever made
+results more negative, never more positive, the *prior* on this un-rerun
+number should lean toward "at least as weak, likely weaker" -- but that is
+an inference from pattern, not a re-measurement, and should not be
+substituted for the real number. Re-running `retest_mtf_vwap_full.py` (ideally
+with a fresh `.cache_alpaca` warm-up pass done separately and non-interactively
+first, to rule out a network stall) is the concrete next step before treating
+MTF v2's live VWAP-filtered validation as either reconfirmed or overturned.
+
+## Corrected 2026-08-24: the hang was diagnosed and the re-test completed -- MTF v2 still does not clear significance
+
+The hang above was never an infinite stall: Alpaca's free-tier IEX feed
+paginates 4H bars in ~16-19 calendar-day chunks server-side regardless of the
+requested `limit`, forcing ~200+ sequential HTTP round-trips per symbol for a
+10.5yr window (measured: 60.8s/symbol just for the 4H leg). `simulate_live_system.fetch_raw()`
+fetches all 40 symbols sequentially with no on-disk cache, so the full run
+needs ~40+ minutes wall-clock -- the killed attempt was ~1/3 through the
+symbol list, not stuck.
+
+Per the user's request, the re-test was re-run sourcing bars via **vectorbt's
+own data layer** (`vbt.YFData.download`, yfinance-backed) instead of Alpaca,
+feeding the result into `simulate_live_system.run_combined()` unchanged (same
+shared-capital-pool engine, same `strategy_mtf.py` signal logic, unmodified)
+-- see `retest_mtf_vwap_vectorbt.py`. Yahoo hard-caps hourly-derived (and
+therefore 4H) history at ~730 calendar days, so this run only covers
+2023-09-27 -> 2026-08-24 (~2.9yr) vs. the original's 10.5yr Alpaca window --
+an unavoidable data-source limitation, not a methodology choice.
+
+| variant | n | win% | avg R | t-stat |
+|---|---|---|---|---|
+| baseline (unfiltered) | 170 | 45.3% | +0.173 | +1.88 |
+| **VWAP(200), live config** | **45** | 48.9% | +0.226 | **+1.26** |
+
+**Verdict: does not clear significance.** t=+1.26 (n=45) is directionally
+consistent with the original t=+0.98 (n=121) -- same sign, VWAP(200) still
+improves avg_R over the unfiltered baseline both times -- but on a much
+smaller sample it is, if anything, less conclusive. Across three independent
+re-tests now (original 10.5yr Alpaca; this project's shared-portfolio engine
+on that same data; this vectorbt/yfinance 2.9yr re-run), MTF v2's live
+VWAP(200) config has **never once cleared this project's own t>2 bar**.
+
+**Action taken:** `live_trading.py` now sets `MTF_ENTRIES_DISABLED = True` --
+`run_mtf()` still runs (so any already-open MTF position, currently none,
+keeps being managed) but places no new entries. Re-enable if a future
+re-test clears t>2.
+
 ## Caveat
 Same as every other basket test: the 20 US symbols and 8 crypto pairs are
 correlated, so headline trade counts overstate independent sample size.
@@ -167,4 +325,8 @@ correlated, so headline trade counts overstate independent sample size.
   alignment via shifted-index `merge_asof`
 - `backtest_mtf.py` -- event-driven engine, takes `(ltf_df, htf_df)` tuple
 - `data.py` -- adds `fetch_yfinance_weekly` (native interval, no lookback cap)
+- `simulate_live_system.py` / `sweep_mtf_trend_filter.py` -- deep-history
+  shared-portfolio engine + trend-filter sweep (SMA/EMA/VWAP x 4 periods)
+- `retest_mtf_vwap_full.py` -- full 40-symbol combined-sample confirmation
+  of the VWAP(200) filter (closes the IS/OOS-split-only gap above)
 - `run_basket_mtf.py` -- 1H+4H basket run

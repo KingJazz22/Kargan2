@@ -358,6 +358,59 @@ return/drawdown. **Applied as the new default** in `backtest_combined_grid.py`
 `grid_capital_cap_frac=0.2` rather than `None`, so any future combined-portfolio
 run gets the reserved-capital protection unless explicitly overridden.
 
+## Corrected 2026-08-24: shared-portfolio (`backtest_combined_grid.py`) re-run
+`backtest_combined_grid.py` reimplements its own grid-stop/take-profit fill
+logic (imports `GridPosition` for state but NOT the fill-price computation),
+so it did not automatically inherit the fix applied to
+`backtest_grid_martingale.py` -- fixed separately (same gap-aware clamp on
+both the grid-stop and take-profit sites). Re-ran Result 5's config (40
+symbols, cap=10, `grid_capital_cap_frac=0.2`):
+
+| | Breakout, before | Breakout, after | Grid, before | Grid, after |
+|---|---|---|---|---|
+| Trades | 224 | 232 | 254 | 233 |
+| Avg R | +0.103 | +0.098 | +0.096 | +0.136 |
+| t-stat | 1.98 | 1.96 | 2.73 | 3.69 |
+| Portfolio return | +56.2% | +46.6% | (same run) | (same run) |
+| Max drawdown | -12.7% | -13.1% | (same run) | (same run) |
+
+Breakout's leg is essentially unchanged (t=1.98 -> 1.96). Grid's leg looks
+*stronger* post-fix (t=2.73 -> 3.69) -- this is very likely NOT the fix
+itself (the fix should only ever make fills less favorable, never more), but
+this script's `fetch_yfinance` daily window and its MTF leg (via
+`backtest_combined.py`'s `Position` import) are both relative to "today," so
+the two runs cover different, non-identical historical windows (this is the
+same run-to-run non-determinism flagged elsewhere in this project, e.g.
+`run_original_cached_swing_breakout.py`'s note on live-data reproducibility).
+One symbol (NKE) also failed to fetch on the post-fix run. **Read this
+re-run as a confirmation that the shared-portfolio verdict survives (both
+legs still real, grid still clearly significant, portfolio still profitable
+with a similar drawdown profile) rather than as a precise before/after
+delta** -- a same-window re-run would be needed to isolate the fix's exact
+effect on this specific config.
+
+## Corrected 2026-08-24: gap-through stop-fill bug fixed, current-default config re-run
+`backtest_grid_martingale.py`'s `stop_hit()`/`tp_hit()` fills were BOTH
+unconditional (unlike every other engine in this project, which at least
+handled TP correctly) -- neither the grid-stop nor the take-profit clamped
+to the bar's Open on a gap-through bar. Fixed both, mirroring the gap-aware
+pattern used correctly elsewhere in this codebase. Re-ran the current-default
+config (long-only, gap=1, TP_ATR_MULT=2.0) via `test_grid_oos_symbols.py`:
+
+| | IS, before | IS, after | OOS, before | OOS, after | Combined, before | Combined, after |
+|---|---|---|---|---|---|---|
+| Trades | 266 | 265 | 245 | 245 | 510 | 510 |
+| Win rate | 69.5% | 69.4% | 52.2% | 52.2% | 61.2% | 61.2% |
+| Avg R | +0.224 | +0.233 | +0.020 | +0.017 | +0.129 | +0.129 |
+| t-stat | 7.43 | 7.34 | 0.55 | 0.43 | 5.23 | 5.06 |
+
+**Essentially no change -- verdict fully unchanged.** This strategy's exits
+are dominated by `regime_kill` and `take_profit` (grid_stop is a small
+minority of exits, ~7-16% depending on sample), so the stop-fill bug barely
+touched its results, unlike the pure-stop-exit strategies elsewhere in this
+project. Grid-Martingale remains solidly validated in-sample (t=7.34) and
+not independently significant out-of-sample (t=0.43), same as before.
+
 ## Interpretation
 - **Short: not supported.** Flat-to-negative in both independent samples.
   Now disabled by default (`long_only=True`).

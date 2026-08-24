@@ -151,9 +151,9 @@ def _simulate(rows: pd.DataFrame, pick_entry, starting_equity: float, risk_pct: 
 
             fill_price = None
             if position.side == "long" and row["Low"] <= position.trail_stop:
-                fill_price = position.trail_stop
+                fill_price = row["Open"] if row["Open"] <= position.trail_stop else position.trail_stop
             elif position.side == "short" and row["High"] >= position.trail_stop:
-                fill_price = position.trail_stop
+                fill_price = row["Open"] if row["Open"] >= position.trail_stop else position.trail_stop
 
             if fill_price is not None:
                 position.exit_date, position.exit_price = date, fill_price

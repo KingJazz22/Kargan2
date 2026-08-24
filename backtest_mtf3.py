@@ -1,16 +1,15 @@
-"""Event-driven backtester for the Mean Reversion strategy.
-
-Same lookahead-safe convention as backtest.py: signals decided on a bar's
-close execute at the next bar's open; the ATR trailing stop is a resting
-price order that can fill intrabar. Same simplifications (no commissions/
-slippage, no margin/borrow modeling).
+"""Event-driven backtester for the 3-Timeframe RSI+Stochastic strategy.
+Identical engine to backtest_mtf.py (same Trade dataclass, same next-bar-open
+fill / intrabar trailing-stop-fill event loop, same fixed-fractional
+position sizing) -- the only change is `data` is a 3-tuple
+(ltf_df, mtf_df, htf_df) instead of a 2-tuple, so this plugs into
+basket.run_basket via a fetch_fn that returns the triple.
 """
 from dataclasses import dataclass
 
-import numpy as np
 import pandas as pd
 
-import strategy_meanrev as strat
+import strategy_mtf3 as strat
 
 WARMUP_BARS = 100
 
@@ -41,9 +40,10 @@ class Trade:
         return self.pnl() / self.risk_amount
 
 
-def run_backtest(df: pd.DataFrame, starting_equity: float = 100_000.0, risk_pct: float = 0.01, strategy_params: dict = None):
-    data = strat.prepare(df, **(strategy_params or {}))
-    n = len(data)
+def run_backtest(data, starting_equity: float = 100_000.0, risk_pct: float = 0.01, strategy_params: dict = None):
+    ltf_df, mtf_df, htf_df = data
+    prep = strat.prepare(ltf_df, mtf_df, htf_df, **(strategy_params or {}))
+    n = len(prep)
     if n <= WARMUP_BARS + 5:
         raise ValueError(f"Not enough bars ({n}) for warmup ({WARMUP_BARS})")
 
@@ -54,12 +54,16 @@ def run_backtest(df: pd.DataFrame, starting_equity: float = 100_000.0, risk_pct:
     trades: list[Trade] = []
     equity_curve = []
 
-    rows = data.iloc[WARMUP_BARS:]
+    # itertuples (not iterrows) -- iterrows builds a full Series per row,
+    # which dominates runtime on 1m/5m data with 100k+ rows per symbol.
+    cols = ["Open", "High", "Low", "Close", "atr", "long_entry", "short_entry", "long_target_exit", "short_target_exit"]
+    rows = prep.iloc[WARMUP_BARS:][cols]
 
-    for date, row in rows.iterrows():
+    for row in rows.itertuples(name="Bar"):
+        date = row.Index
         # 1. execute pending exit at today's open
         if position is not None and pending_exit_reason is not None:
-            exit_price = row["Open"]
+            exit_price = row.Open
             position.exit_date = date
             position.exit_price = exit_price
             position.exit_reason = pending_exit_reason
@@ -74,7 +78,7 @@ def run_backtest(df: pd.DataFrame, starting_equity: float = 100_000.0, risk_pct:
         # 2. execute pending entry at today's open
         if position is None and pending_entry is not None:
             side, atr_at_signal = pending_entry
-            entry_price = row["Open"]
+            entry_price = row.Open
             stop_distance = strat.TRAIL_ATR_MULT * atr_at_signal
 
             if stop_distance > 0:
@@ -103,19 +107,19 @@ def run_backtest(df: pd.DataFrame, starting_equity: float = 100_000.0, risk_pct:
         # 3. manage open position: update trail, check intrabar stop fill
         if position is not None:
             if position.side == "long":
-                position.extreme = max(position.extreme, row["Close"])
-                candidate = position.extreme - strat.TRAIL_ATR_MULT * row["atr"]
+                position.extreme = max(position.extreme, row.Close)
+                candidate = position.extreme - strat.TRAIL_ATR_MULT * row.atr
                 position.trail_stop = max(position.trail_stop, candidate)
             else:
-                position.extreme = min(position.extreme, row["Close"])
-                candidate = position.extreme + strat.TRAIL_ATR_MULT * row["atr"]
+                position.extreme = min(position.extreme, row.Close)
+                candidate = position.extreme + strat.TRAIL_ATR_MULT * row.atr
                 position.trail_stop = min(position.trail_stop, candidate)
 
             fill_price = None
-            if position.side == "long" and row["Low"] <= position.trail_stop:
-                fill_price = row["Open"] if row["Open"] <= position.trail_stop else position.trail_stop
-            elif position.side == "short" and row["High"] >= position.trail_stop:
-                fill_price = row["Open"] if row["Open"] >= position.trail_stop else position.trail_stop
+            if position.side == "long" and row.Low <= position.trail_stop:
+                fill_price = row.Open if row.Open <= position.trail_stop else position.trail_stop
+            elif position.side == "short" and row.High >= position.trail_stop:
+                fill_price = row.Open if row.Open >= position.trail_stop else position.trail_stop
 
             if fill_price is not None:
                 position.exit_date = date
@@ -130,21 +134,21 @@ def run_backtest(df: pd.DataFrame, starting_equity: float = 100_000.0, risk_pct:
 
         # 4. close-based target exit -> queue for next bar's open
         if position is not None:
-            if position.side == "long" and bool(row["long_target_exit"]):
-                pending_exit_reason = "target_bb_mid"
-            elif position.side == "short" and bool(row["short_target_exit"]):
-                pending_exit_reason = "target_bb_mid"
+            if position.side == "long" and bool(row.long_target_exit):
+                pending_exit_reason = "target_rsi_neutral"
+            elif position.side == "short" and bool(row.short_target_exit):
+                pending_exit_reason = "target_rsi_neutral"
 
         # 5. entry signals -> queue for next bar's open
         if position is None and pending_entry is None:
-            if bool(row["long_entry"]):
-                pending_entry = ("long", row["atr"])
-            elif bool(row["short_entry"]):
-                pending_entry = ("short", row["atr"])
+            if bool(row.long_entry):
+                pending_entry = ("long", row.atr)
+            elif bool(row.short_entry):
+                pending_entry = ("short", row.atr)
 
         # 6. mark-to-market equity
         if position is not None:
-            equity = cash + position.shares * row["Close"] if position.side == "long" else cash - position.shares * row["Close"]
+            equity = cash + position.shares * row.Close if position.side == "long" else cash - position.shares * row.Close
         else:
             equity = cash
         equity_curve.append((date, equity))
