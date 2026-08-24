@@ -69,6 +69,24 @@ def fetch_4h_bars(symbols: list[str], lookback_days: int = 400) -> dict[str, pd.
     return _fetch_bars(symbols, TimeFrame(4, TimeFrameUnit.Hour), lookback_days)
 
 
+def fetch_hourly_bars(symbols: list[str], lookback_days: int = 60) -> dict[str, pd.DataFrame]:
+    from alpaca.data.timeframe import TimeFrame
+
+    return _fetch_bars(symbols, TimeFrame.Hour, lookback_days)
+
+
+def fetch_15m_bars(symbols: list[str], lookback_days: int = 15) -> dict[str, pd.DataFrame]:
+    from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+
+    return _fetch_bars(symbols, TimeFrame(15, TimeFrameUnit.Minute), lookback_days)
+
+
+def fetch_5m_bars(symbols: list[str], lookback_days: int = 10) -> dict[str, pd.DataFrame]:
+    from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+
+    return _fetch_bars(symbols, TimeFrame(5, TimeFrameUnit.Minute), lookback_days)
+
+
 def get_equity() -> float:
     return float(trading_client().get_account().equity)
 
