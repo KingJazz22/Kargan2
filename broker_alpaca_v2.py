@@ -1,10 +1,10 @@
-"""Thin Alpaca wrapper for the live/paper trading runner (Breakout Hunter + MTF).
+"""Thin Alpaca wrapper for live_trading_v2.py's dedicated paper account --
+completely separate credentials from broker_alpaca.py's account (which
+already carries the Breakout/Swing/PCSE/Orland positions live_trading.py
+manages). Identical interface to broker_alpaca.py, just pointed at
+ALPACA_API_KEY_V2 / ALPACA_SECRET_KEY_V2 in Kargan2/.env.
 
-Requires ALPACA_API_KEY / ALPACA_SECRET_KEY in Kargan2/.env -- a dedicated
-paper account for this project, NOT the NewBOT Alpaca account.
-
-paper=True is hardcoded deliberately (per the decision to run paper-only).
-Switching to live trading is a conscious code change, not an env-var flip.
+paper=True is hardcoded deliberately, same reasoning as broker_alpaca.py.
 """
 import os
 import time
@@ -12,16 +12,16 @@ import time
 import pandas as pd
 from dotenv import load_dotenv
 
-load_dotenv(override=True)  # .env always wins over a stale system-level env var
+load_dotenv(override=True)
 
-API_KEY = os.getenv("ALPACA_API_KEY")
-SECRET_KEY = os.getenv("ALPACA_SECRET_KEY")
+API_KEY = os.getenv("ALPACA_API_KEY_V2")
+SECRET_KEY = os.getenv("ALPACA_SECRET_KEY_V2")
 
 if not API_KEY or not SECRET_KEY:
     raise RuntimeError(
-        "ALPACA_API_KEY / ALPACA_SECRET_KEY not set in Kargan2/.env. "
-        "Create a NEW paper-trading account at alpaca.markets dedicated to this "
-        "project -- do not reuse the NewBOT account's credentials."
+        "ALPACA_API_KEY_V2 / ALPACA_SECRET_KEY_V2 not set in Kargan2/.env. "
+        "This is the dedicated paper account for live_trading_v2.py -- do not "
+        "reuse the ALPACA_API_KEY/ALPACA_SECRET_KEY account from broker_alpaca.py."
     )
 
 
@@ -62,29 +62,9 @@ def fetch_daily_bars(symbols: list[str], lookback_days: int = 400) -> dict[str, 
 
 
 def fetch_4h_bars(symbols: list[str], lookback_days: int = 400) -> dict[str, pd.DataFrame]:
-    """Native 4H bars via Alpaca (no resampling needed, unlike the yfinance
-    backtest path which had to build 4H from 1H due to Yahoo's interval set)."""
     from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 
     return _fetch_bars(symbols, TimeFrame(4, TimeFrameUnit.Hour), lookback_days)
-
-
-def fetch_hourly_bars(symbols: list[str], lookback_days: int = 60) -> dict[str, pd.DataFrame]:
-    from alpaca.data.timeframe import TimeFrame
-
-    return _fetch_bars(symbols, TimeFrame.Hour, lookback_days)
-
-
-def fetch_15m_bars(symbols: list[str], lookback_days: int = 15) -> dict[str, pd.DataFrame]:
-    from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
-
-    return _fetch_bars(symbols, TimeFrame(15, TimeFrameUnit.Minute), lookback_days)
-
-
-def fetch_5m_bars(symbols: list[str], lookback_days: int = 10) -> dict[str, pd.DataFrame]:
-    from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
-
-    return _fetch_bars(symbols, TimeFrame(5, TimeFrameUnit.Minute), lookback_days)
 
 
 def get_equity() -> float:
@@ -106,10 +86,8 @@ def get_open_positions() -> dict[str, dict]:
 def submit_market_buy(symbol: str, qty: float, wait_fill_seconds: int = 30) -> dict:
     """Returns {"filled": False, "rejected": True, "error": "..."} if Alpaca
     rejects the order outright (insufficient buying power, wash-trade
-    protection, etc.) instead of letting the APIError propagate -- a single
-    symbol's order getting rejected should never abort the rest of a live
-    trading run (or skip save_state for every strategy that already
-    succeeded this cycle), it should just be skipped like an unfilled order."""
+    protection, etc.) instead of letting the APIError propagate -- see
+    broker_alpaca.py's identical fix for the full reasoning."""
     from alpaca.common.exceptions import APIError
     from alpaca.trading.requests import MarketOrderRequest
     from alpaca.trading.enums import OrderSide, TimeInForce
@@ -132,10 +110,6 @@ def submit_market_buy(symbol: str, qty: float, wait_fill_seconds: int = 30) -> d
 
 
 def submit_market_sell(symbol: str, qty: float, wait_fill_seconds: int = 30) -> dict:
-    """Closes a long position at market -- used by PCSE's take-profit, which
-    is checked periodically (has price touched the level since last check?)
-    rather than resting as a second order alongside the stop-loss. Avoids
-    ever having two simultaneous exit orders committing the same shares."""
     from alpaca.trading.requests import MarketOrderRequest
     from alpaca.trading.enums import OrderSide, TimeInForce
 
@@ -154,10 +128,6 @@ def submit_market_sell(symbol: str, qty: float, wait_fill_seconds: int = 30) -> 
 
 
 def get_order_status(order_id: str) -> dict:
-    """Used to reconcile per-strategy lots: Alpaca nets positions per symbol,
-    so when two strategies hold the same symbol, checking whether a SPECIFIC
-    stop order has filled is the only reliable way to know which strategy's
-    lot closed."""
     order = trading_client().get_order_by_id(order_id)
     # order.status is a str-mixin Enum (OrderStatus.FILLED == "filled" is True),
     # but str(order.status) renders "OrderStatus.FILLED" -- silently breaking

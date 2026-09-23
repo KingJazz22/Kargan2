@@ -94,7 +94,17 @@ from state_store import load_state, save_state
 from test_mtf_oos_symbols import OOS_US_SYMBOLS
 
 SYMBOLS = US_SYMBOLS + OOS_US_SYMBOLS  # the 40 symbols both edges were validated on
-RISK_PCT = 0.01
+# Raised from 0.01 to 0.02: sweep_risk_levels.py / sweep_risk_levels_realistic.py
+# swept 0.5%-5% risk/trade through the real shared-ledger engine (circuit
+# breaker, daily loss gate, cash constraints) on both the original 40-symbol
+# universe and a more realistic 81-symbol one (adds known laggards/turnarounds
+# to counter survivorship bias) -- 2% came out as the best total return in
+# BOTH universes and both the historical replay and Monte Carlo layers, with
+# negligible modeled risk of a serious drawdown (0.1% chance of a 30%+ DD on
+# the realistic universe). Past 2%, returns fall and drawdown risk climbs
+# sharply in both universes -- this is not "more risk, more reward" without
+# limit, 2% is the peak, not a floor.
+RISK_PCT = 0.02
 # No position-count cap: simulate_full_kargan2_system.py's sweep showed cash
 # availability (each entry sized off available cash, see place_entry) was
 # already the real constraint -- capping at 10 vs 15/20/uncapped changed
@@ -176,13 +186,22 @@ def place_entry(strategy, symbol, qty_hint_price, initial_stop, atr_at_signal, e
     if stop_distance <= 0:
         return None
     risk_amount = equity * risk_pct
-    qty = int(min(risk_amount / stop_distance, equity / qty_hint_price))
+    # Cap by *buying power*, not equity -- equity includes non-marginable
+    # positions (e.g. crypto, which ties up cash 1:1 with no margin) and
+    # already-committed margin, neither of which is actually spendable. Sizing
+    # off equity alone was producing orders Alpaca then rejected outright with
+    # "insufficient buying power", losing the whole run (see submit_market_buy).
+    buying_power = broker.get_buying_power()
+    qty = int(min(risk_amount / stop_distance, equity / qty_hint_price, buying_power / qty_hint_price))
     if qty < 1:
         return None
 
     fill = broker.submit_market_buy(symbol, qty)
     if not fill["filled"]:
-        print(f"    {symbol}/{strategy}: order not filled within wait window, skipping")
+        if fill.get("rejected"):
+            print(f"    {symbol}/{strategy}: order rejected -- {fill['error']}")
+        else:
+            print(f"    {symbol}/{strategy}: order not filled within wait window, skipping")
         return None
 
     entry_price = fill["fill_price"]
@@ -221,12 +240,24 @@ def update_trail(symbol, strategy, s, row, extreme_price, trail_mult, activate_a
     if s["trail_active"]:
         candidate = s["extreme"] - trail_mult * float(row["atr"])
         new_stop = max(s["current_stop"], candidate)
+        current_price = float(row["Close"])
         if new_stop > s["current_stop"]:
-            print(f"  {symbol}/{strategy}: raising stop {s['current_stop']:.2f} -> {new_stop:.2f}")
-            if not args.dry_run:
-                broker.cancel_order(s["stop_order_id"])
-                s["stop_order_id"] = broker.submit_stop_sell(symbol, pos_qty, new_stop)
-            s["current_stop"] = new_stop
+            if new_stop >= current_price:
+                # extreme was set on an earlier, higher bar; a sharp pullback
+                # since then can make the trail formula compute a stop AT or
+                # ABOVE the current price, which Alpaca rejects outright (a
+                # sell-stop can't sit above market). Cancelling the old
+                # (still valid) resting stop before that submission failed is
+                # exactly how a CRM lot ended up with a live position and
+                # NO stop order at all -- skip the raise instead, leaving the
+                # existing valid stop order in place untouched.
+                print(f"  {symbol}/{strategy}: skipping stop raise to {new_stop:.2f} -- at/above current price {current_price:.2f}")
+            else:
+                print(f"  {symbol}/{strategy}: raising stop {s['current_stop']:.2f} -> {new_stop:.2f}")
+                if not args.dry_run:
+                    broker.cancel_order(s["stop_order_id"])
+                    s["stop_order_id"] = broker.submit_stop_sell(symbol, pos_qty, new_stop)
+                s["current_stop"] = new_stop
 
 
 def check_partial_profit(symbol, strategy, s, current_price, args):
@@ -695,23 +726,37 @@ def main():
         print(f"\n!!! ORLAND HALT: {ORLAND_CONSEC_LOSS_HALT} consecutive EWZ losses -- "
               f"new orland entries halted (breakout/mtf/pcse unaffected)")
 
-    run_breakout(state, equity, risk_pct, halt_entries, args)
-    run_swing_breakout(state, equity, risk_pct, halt_entries, args)
-    any_open_mtf = any(k.endswith("|mtf") for k in state["positions"])
-    if MTF_ENTRIES_DISABLED and not any_open_mtf:
-        # Skip the fetch entirely: no position to manage and no new entries
-        # will ever be placed, so there's nothing for this call to do --
-        # avoids ~minutes of Alpaca API load every run (400-day, 40-symbol
-        # 4H-bar fetch, slow under IEX free-tier pagination) for zero benefit.
-        print("\n--- MTF v2: entries disabled, no open position -- skipped ---")
-    else:
-        run_mtf(state, equity, risk_pct, halt_entries or MTF_ENTRIES_DISABLED, args)
-    run_pcse(state, equity, risk_pct, halt_entries, args)
-    run_orland_s1(state, equity, orland_halt, args)
-    run_orland_elder(state, equity, orland_halt, args)
-
-    if not args.dry_run:
-        save_state(state)
+    # Each run_* call is independent (different strategy, often different
+    # symbols) -- one raising shouldn't take the rest down with it. Before
+    # this, an uncaught exception from ANY strategy (e.g. a data-fetch error)
+    # aborted main() entirely, skipping save_state below -- so whatever
+    # earlier strategies in this same pass had already done (fills, trail
+    # raises, closes) never got persisted to local state, only to resurface
+    # next run as a phantom re-signal that collides with the still-open
+    # broker-side order ("wash trade detected") and repeats the failure
+    # forever. Order-submission errors specifically no longer raise at all
+    # (see broker.submit_market_buy) -- this is defense in depth for anything
+    # else (bad data, a network blip) that still could.
+    try:
+        run_breakout(state, equity, risk_pct, halt_entries, args)
+        run_swing_breakout(state, equity, risk_pct, halt_entries, args)
+        any_open_mtf = any(k.endswith("|mtf") for k in state["positions"])
+        if MTF_ENTRIES_DISABLED and not any_open_mtf:
+            # Skip the fetch entirely: no position to manage and no new entries
+            # will ever be placed, so there's nothing for this call to do --
+            # avoids ~minutes of Alpaca API load every run (400-day, 40-symbol
+            # 4H-bar fetch, slow under IEX free-tier pagination) for zero benefit.
+            print("\n--- MTF v2: entries disabled, no open position -- skipped ---")
+        else:
+            run_mtf(state, equity, risk_pct, halt_entries or MTF_ENTRIES_DISABLED, args)
+        run_pcse(state, equity, risk_pct, halt_entries, args)
+        run_orland_s1(state, equity, orland_halt, args)
+        run_orland_elder(state, equity, orland_halt, args)
+    except Exception as e:
+        print(f"\n!!! run aborted by unexpected error: {e!r} -- saving state for whatever completed above")
+    finally:
+        if not args.dry_run:
+            save_state(state)
     print("\n=== done ===")
 
 
