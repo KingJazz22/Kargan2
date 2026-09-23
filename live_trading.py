@@ -255,9 +255,30 @@ def update_trail(symbol, strategy, s, row, extreme_price, trail_mult, activate_a
             else:
                 print(f"  {symbol}/{strategy}: raising stop {s['current_stop']:.2f} -> {new_stop:.2f}")
                 if not args.dry_run:
+                    # Submitting the new stop BEFORE cancelling the old one fails
+                    # outright (Alpaca: "insufficient qty available", since the
+                    # resting old stop already reserves these shares) -- cancel
+                    # must go first. But that means ANY failure submitting the
+                    # replacement (not just the invalid-price case above -- a
+                    # transient API error is enough) leaves the position with NO
+                    # stop at all. This happened live: AMD's raise cancelled a
+                    # valid stop, the resubmit failed for an unlogged reason, and
+                    # the position sat unprotected until reconciliation cleared it
+                    # next run and Breakout Hunter opened a SECOND position on top
+                    # of the still-held, now-untracked first one. Re-establish the
+                    # OLD (already-valid) price on any failure instead of leaving
+                    # the cancel to stand alone.
+                    old_stop_price = s["current_stop"]
                     broker.cancel_order(s["stop_order_id"])
-                    s["stop_order_id"] = broker.submit_stop_sell(symbol, pos_qty, new_stop)
-                s["current_stop"] = new_stop
+                    try:
+                        s["stop_order_id"] = broker.submit_stop_sell(symbol, pos_qty, new_stop)
+                        s["current_stop"] = new_stop
+                    except Exception as e:
+                        print(f"  {symbol}/{strategy}: raised-stop submission failed ({e!r}) -- "
+                              f"re-establishing the old stop ({old_stop_price:.2f}) instead of leaving the position unprotected")
+                        s["stop_order_id"] = broker.submit_stop_sell(symbol, pos_qty, old_stop_price)
+                else:
+                    s["current_stop"] = new_stop
 
 
 def check_partial_profit(symbol, strategy, s, current_price, args):
