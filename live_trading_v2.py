@@ -8,28 +8,41 @@ docs (see each run_* function's docstring for its own confirmation numbers):
 
   1. Breakout Hunter (daily) -- strategy_breakout.py, own two-stage ATR
      trailing stop. Confirmed combined t=2.80 (FINDINGS_BREAKOUT.md).
-  2. Structure-Confirmed Breakout + PCSE-style exit (daily) -- entries from
-     strategy_swing_breakout.py, but its own two-stage trailing stop is
-     REPLACED with the wide-fixed-SL/Bollinger-TP exit from
-     FINDINGS_BREAKOUT_PCSE_EXIT.md, originally sl_atr_mult=8 (t=6.66
-     combined, +86.7% real shared-ledger return, -8.8% max DD -- see that
-     file's "sizing trap" section for why sl=8 beat higher-t-stat, wider-stop
-     cells that turned out to be a position-sizing artifact). That result was
-     only ever validated on the original 40/47-symbol universe though (40
-     hand-picked, currently-thriving mega/large-caps, zero laggards or
-     turnarounds -- a real survivorship-bias risk). sweep_pcse_exit_sl.py
-     re-ran the full SL grid through this exact 3-strategy combo on a more
-     realistic 81-symbol universe (+41 known laggards/cyclicals/turnarounds):
-     sl=8 there only returns +98.4% AND trips the circuit breaker 2,297
-     times, while sl=18 returns +180.4% with ZERO trips and still holds up
-     on the original universe (+396.0%) -- SWING_PCSE_SL_ATR_MULT is now 18,
-     not 8, the setting that's robust on both universes rather than overfit
-     to the friendlier one. bb_num_std=2.5, not that file's original 3.0:
-     sweep_swing_pcse_bb_width.py found 2.5 ties 3.0 on combined t-stat (6.72
-     vs 6.71) on ~2x the trade count with the best OOS split in the grid
-     (t=3.91) -- safe to trust directly, since bb_num_std only moves the
-     take-profit level, not position size, so none of the SL sweep's
-     sizing-artifact risk applies here.
+  2. Structure-Confirmed Breakout + fixed-ATR-target exit (daily) -- entries
+     from strategy_swing_breakout.py, but its own two-stage trailing stop is
+     REPLACED with a wide fixed SL / fixed ATR-multiple TP exit. History of
+     this exit's tuning, each stage superseding the last:
+       a. FINDINGS_BREAKOUT_PCSE_EXIT.md: sl_atr_mult=8, TP=Bollinger(3.0std),
+          daily-bar-approximated backtest, original 40/47-symbol universe.
+       b. sweep_pcse_exit_sl.py / sweep_swing_pcse_bb_width.py: re-ran on a
+          more realistic 81-symbol universe (+41 laggards/turnarounds) to
+          correct survivorship bias -- moved to sl=18 (sl=8 there tripped the
+          circuit breaker 2,297 times, a sizing artifact) and bb_num_std=2.5.
+          Still daily-bar-approximated.
+       c. sweep_pcse_exit_sl_tick_precise.py: re-ran the SL grid a THIRD time,
+          now against real 1-minute price data (exact fill timing, checkpoint-
+          cadence-matched exit checks, true shared capital pool), top-100
+          symbols. Found a genuine regime change: sl=12-14 forms a materially
+          better plateau (return +32-36%, maxDD only -2.0/-2.3%) than sl=15+
+          (return +20-24%, maxDD -3.9%) -- sl=14 has the best Sharpe (3.47) of
+          the whole grid. SWING_PCSE_SL_ATR_MULT moved from 18 to 14.
+       d. sweep_tp_variants_tick_precise.py: with sl=14 held fixed, swept the
+          TP mechanism itself (Bollinger band width, fixed R-multiple targets,
+          fixed ATR-multiple targets, trailing-stop-only), all tick-precise,
+          top-100 symbols. A FIXED take-profit set once at entry -- no daily
+          recompute, no trailing -- at entry_price + 3xATR-at-entry clearly
+          beat every Bollinger-band width and every other mechanism tested
+          (Sharpe 5.18 vs 3.47 for the prior bb_num_std=2.5 setting, +55.4%
+          vs +31.7% return, similar ~-2.2% maxDD); atr_mult=5 and 8 also beat
+          every BB/R-multiple variant, so this isn't a single lucky point.
+          sanity_check_atr_tp.py then confirmed: (i) trade-level detail on the
+          400 top-100 trades shows no pathology (0 non-positive hold times, 0
+          impossible losses, no single symbol above 3.3% of trades, exit mix
+          351 take-profit/49 stop-loss), and (ii) re-run on the ORIGINAL
+          40-symbol live universe (out-of-set from the top-100 sweep) held up
+          just as well -- +45.7% return, -2.3% maxDD, Sharpe 5.72, 87.6% win
+          rate. SWING_PCSE_TP_ATR_MULT is now a fixed 3.0 (was a Bollinger(20,
+          2.5std) band, recomputed live every run).
   3. PCSE (4H) -- strategy_pcse_final.py, own entries and exit unchanged.
      This project's strongest standalone strategy (t=7.06, FINDINGS_CANDLE_PROB.md).
 
@@ -68,7 +81,6 @@ import strategy_breakout as strat_bo
 import strategy_pcse_final as strat_pcse
 import strategy_swing_breakout as strat_swing
 from basket import US_SYMBOLS
-from indicators_core import bollinger_bands
 from state_store_v2 import load_state, save_state
 from test_mtf_oos_symbols import OOS_US_SYMBOLS
 
@@ -86,30 +98,14 @@ PCSE_SYMBOLS = US_SYMBOLS
 PCSE_BARS_NEEDED = strat_pcse.entry_strat.TRAIN_BARS + strat_pcse.entry_strat.TEST_BARS
 PCSE_LOOKBACK_DAYS = 800
 
-# Structure-Confirmed + PCSE-exit combo (FINDINGS_BREAKOUT_PCSE_EXIT.md).
-# bb_num_std=2.5 (not PCSE's own default of 3.0): sweep_swing_pcse_bb_width.py
-# found 2.5 ties 3.0 on combined t-stat (6.72 vs 6.71) on ~2x the trade count
-# (1005 vs 522) with the best OOS split in the grid (t=3.91 vs 3.49). Unlike
-# the SL sweep, this carries no sizing-trap risk -- bb_num_std only moves the
-# take-profit level, not position size, so the t-stat gain here is real.
-#
-# SL raised from 8 to 18: FINDINGS_BREAKOUT_PCSE_EXIT.md's sl=8 pick was
-# validated only on the original 40/47-symbol universe (basket.US_SYMBOLS +
-# OOS_US_SYMBOLS) -- 40 hand-picked, currently-thriving mega/large-caps with
-# zero laggards or turnaround stories, a real survivorship-bias risk.
-# sweep_pcse_exit_sl.py re-ran the full sl_atr_mult grid through the actual
-# 3-strategy live_trading_v2.py combo (Breakout Hunter + this + PCSE) on a
-# more realistic 81-symbol universe (+41 known laggards/cyclicals/turnarounds,
-# see sweep_risk_levels_realistic.py) at today's live RISK_PCT=0.02: sl=8
-# there returns only +98.4% AND trips the circuit breaker 2,297 times (the
-# strategy keeps slamming into its own drawdown ceiling), while sl=18 returns
-# +180.4% with ZERO circuit breaker trips -- and still holds up reasonably on
-# the original universe too (+396.0%, vs sl=8's +494.4%). sl=18 is the
-# setting that's good on BOTH universes, not just the one it was originally
-# tuned on -- the textbook signature of the more robust (less overfit) choice.
-SWING_PCSE_SL_ATR_MULT = 18.0
-SWING_PCSE_BB_PERIOD = 20
-SWING_PCSE_BB_NUM_STD = 2.5
+# Structure-Confirmed + fixed-ATR-target exit combo. sl=14, TP=3xATR are both
+# the tick-precise (real 1-minute data, true shared capital pool), top-100/
+# 40-symbol-cross-validated settings -- see this module's docstring point 2
+# for the full sl=8->18->14 and BB-band->fixed-ATR-target history
+# (sweep_pcse_exit_sl_tick_precise.py + sweep_tp_variants_tick_precise.py +
+# sanity_check_atr_tp.py).
+SWING_PCSE_SL_ATR_MULT = 14.0
+SWING_PCSE_TP_ATR_MULT = 3.0
 
 CIRCUIT_BREAKER_DD_PCT = 0.15
 DAILY_LOSS_LIMIT_PCT = 0.04
@@ -329,37 +325,35 @@ def run_breakout(state, equity, risk_pct, halt_entries, args, bars):
 
 def run_swing_pcse_exit(state, equity, risk_pct, halt_entries, args, bars):
     """Structure-Confirmed Breakout entries (strategy_swing_breakout.py),
-    PCSE-style exit: FIXED stop-loss at entry_price - SWING_PCSE_SL_ATR_MULT x
-    ATR-at-entry (never trails, unlike run_breakout's two-stage stop), take-profit
-    at the first touch of the 20-bar Bollinger upper band at SWING_PCSE_BB_NUM_STD
-    std devs (a moving target, re-checked every run). See FINDINGS_BREAKOUT_PCSE_EXIT.md
-    for the original validation (t=6.66 combined, +86.7% real shared-ledger return,
-    -8.8% max DD) and why that file picked sl=8 over higher-t-stat wider-stop cells
-    (a sizing artifact) -- SWING_PCSE_SL_ATR_MULT is now 18, not that file's 8, per
-    sweep_pcse_exit_sl.py's realistic-universe re-test; see this module's own
-    docstring (strategy #2) for the full reasoning.
+    fixed-ATR-target exit: FIXED stop-loss at entry_price - SWING_PCSE_SL_ATR_MULT
+    x ATR-at-entry (never trails, unlike run_breakout's two-stage stop), FIXED
+    take-profit at entry_price + SWING_PCSE_TP_ATR_MULT x ATR-at-entry -- decided
+    once at entry and never recomputed, unlike a Bollinger-band target. See this
+    module's docstring (strategy #2) for the full sl=8->18->14 and
+    BB-band->fixed-ATR-target validation history (tick-precise, real shared
+    capital pool, cross-validated on both the top-100 and original 40-symbol
+    universes).
 
     Same "checked periodically, not truly intrabar" caveat as run_pcse's own
     take-profit check -- acceptable given this is a deliberately wide/patient exit.
     No partial-profit-taking here, matching PCSE's own exit (deliberately left
     unmodified from its validated form).
     """
-    print(f"\n--- Structure-Confirmed Breakout + PCSE-exit (daily, SL={SWING_PCSE_SL_ATR_MULT}x/TP=BB({SWING_PCSE_BB_NUM_STD}std)) ---")
+    print(f"\n--- Structure-Confirmed Breakout + fixed-ATR-target exit "
+          f"(daily, SL={SWING_PCSE_SL_ATR_MULT}x/TP={SWING_PCSE_TP_ATR_MULT}xATR) ---")
 
     for symbol, df in bars.items():
         if len(df) < 2 * strat_swing.SWING_LEFT + 2 * strat_swing.SWING_RIGHT + 50:
             continue
         prepared = strat_swing.prepare(df)
-        bb_mid, bb_upper, _ = bollinger_bands(prepared["Close"], SWING_PCSE_BB_PERIOD, SWING_PCSE_BB_NUM_STD)
-        prepared["bb_upper"] = bb_upper
         row = prepared.iloc[-1]  # exit management: today's live-updating bar, correct for intrabar monitoring
         cursor = state["cursors"].setdefault(symbol, {})
         key = f"{symbol}|swing_pcse"
 
         if key in state["positions"]:
             s = state["positions"][key]
-            tp_price = row["bb_upper"]
-            if pd.notna(tp_price) and tp_price > s["entry_price"] and float(row["High"]) >= tp_price:
+            tp_price = s["entry_price"] + SWING_PCSE_TP_ATR_MULT * s["atr_at_entry"]
+            if float(row["High"]) >= tp_price:
                 print(f"  {symbol}/swing_pcse: take-profit touched (~{tp_price:.2f}) -- closing")
                 if not args.dry_run:
                     broker.cancel_order(s["stop_order_id"])
