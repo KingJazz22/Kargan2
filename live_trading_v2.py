@@ -8,6 +8,18 @@ docs (see each run_* function's docstring for its own confirmation numbers):
 
   1. Breakout Hunter (daily) -- strategy_breakout.py, own two-stage ATR
      trailing stop. Confirmed combined t=2.80 (FINDINGS_BREAKOUT.md).
+     DISABLED for new entries (BREAKOUT_HUNTER_ENABLED = False): the same
+     tick-precise, 40-symbol, real-shared-ledger window that validated
+     strategy #2's sl=14/TP=3xATR change (sanity_check_atr_tp.py) showed
+     Breakout Hunter roughly flat-to-negative over that ~20-month span (25
+     trades, 44% win rate, -$288 net, vs swing_pcse_exit's 104 trades, 98.1%
+     win rate, +$4,855 net -- see this session's "how each strategy behaved"
+     breakdown). Caveat: that's a much thinner sample (25 trades) than the
+     original t=2.80 validation and could be this specific window's noise,
+     not a real edge decay -- existing Breakout Hunter positions are still
+     fully managed (partial-profit, trailing stop) to close normally; only
+     NEW entries are blocked. Flip BREAKOUT_HUNTER_ENABLED back to True to
+     resume once re-validated on more data.
   2. Structure-Confirmed Breakout + fixed-ATR-target exit (daily) -- entries
      from strategy_swing_breakout.py, but its own two-stage trailing stop is
      REPLACED with a wide fixed SL / fixed ATR-multiple TP exit. History of
@@ -106,6 +118,10 @@ PCSE_LOOKBACK_DAYS = 800
 # sanity_check_atr_tp.py).
 SWING_PCSE_SL_ATR_MULT = 14.0
 SWING_PCSE_TP_ATR_MULT = 3.0
+
+# See this module's docstring (strategy #1) for why -- new entries only,
+# existing positions still get managed to close normally.
+BREAKOUT_HUNTER_ENABLED = False
 
 CIRCUIT_BREAKER_DD_PCT = 0.15
 DAILY_LOSS_LIMIT_PCT = 0.04
@@ -290,7 +306,7 @@ def update_risk_throttle(state, equity, peak_equity):
 
 
 def run_breakout(state, equity, risk_pct, halt_entries, args, bars):
-    print("\n--- Breakout Hunter (daily) ---")
+    print("\n--- Breakout Hunter (daily)" + (" [NEW ENTRIES DISABLED]" if not BREAKOUT_HUNTER_ENABLED else "") + " ---")
 
     for symbol, df in bars.items():
         if len(df) < strat_bo.PERCENTILE_LOOKBACK + 50:
@@ -313,6 +329,8 @@ def run_breakout(state, equity, risk_pct, halt_entries, args, bars):
         cursor["last_daily_date"] = entry_date_str
 
         if key not in state["positions"] and bool(entry_row["long_entry"]):
+            if not BREAKOUT_HUNTER_ENABLED:
+                continue
             support, atr_sig = float(entry_row["support"]), float(entry_row["atr"])
             initial_stop = support - strat_bo.INITIAL_STOP_ATR_BUFFER * atr_sig
             print(f"  {symbol}: BREAKOUT entry signal" + (" (entries halted)" if halt_entries else ""))
