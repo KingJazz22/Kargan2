@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
+from alpaca.data.enums import Adjustment
 from alpaca.data.historical import CryptoHistoricalDataClient, StockHistoricalDataClient
 from alpaca.data.requests import CryptoBarsRequest, StockBarsRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
@@ -46,7 +47,13 @@ def _bars_to_df(bars_df, symbol):
 
 
 def fetch_stock(symbol, timeframe, start="2016-01-01", end="2026-08-01", retries=3):
-    req = StockBarsRequest(symbol_or_symbols=symbol, timeframe=timeframe, start=start, end=end)
+    # Alpaca defaults to RAW (unadjusted) bars -- a stock split shows up as a
+    # fake single-day price collapse (e.g. WMT's Feb 2024 3-for-1 split reads
+    # as a -66% one-day return), corrupting any return/volatility statistic
+    # computed off Close. ALL matches data.py's yfinance fetchers, which use
+    # auto_adjust=True (split + dividend adjusted) by default.
+    req = StockBarsRequest(symbol_or_symbols=symbol, timeframe=timeframe, start=start, end=end,
+                            adjustment=Adjustment.ALL)
     for attempt in range(retries):
         try:
             bars = stock_client().get_stock_bars(req).df
@@ -81,6 +88,30 @@ def fetch_stock_1h(symbol, start="2016-01-01", end="2026-08-01"):
     return fetch_stock(symbol, TimeFrame(1, TimeFrameUnit.Hour), start, end)
 
 
+def fetch_stock_30m(symbol, start="2016-01-01", end="2026-08-01"):
+    return fetch_stock(symbol, TimeFrame(30, TimeFrameUnit.Minute), start, end)
+
+
+def fetch_stock_15m(symbol, start="2016-01-01", end="2026-08-01"):
+    return fetch_stock(symbol, TimeFrame(15, TimeFrameUnit.Minute), start, end)
+
+
+def fetch_stock_10m(symbol, start="2016-01-01", end="2026-08-01"):
+    return fetch_stock(symbol, TimeFrame(10, TimeFrameUnit.Minute), start, end)
+
+
+def fetch_stock_5m(symbol, start="2016-01-01", end="2026-08-01"):
+    return fetch_stock(symbol, TimeFrame(5, TimeFrameUnit.Minute), start, end)
+
+
+def fetch_stock_2m(symbol, start="2016-01-01", end="2026-08-01"):
+    return fetch_stock(symbol, TimeFrame(2, TimeFrameUnit.Minute), start, end)
+
+
+def fetch_stock_1m(symbol, start="2016-01-01", end="2026-08-01"):
+    return fetch_stock(symbol, TimeFrame(1, TimeFrameUnit.Minute), start, end)
+
+
 def fetch_crypto_daily(symbol, start="2021-01-01", end="2026-08-01"):
     return fetch_crypto(symbol, TimeFrame.Day, start, end)
 
@@ -91,3 +122,23 @@ def fetch_crypto_4h(symbol, start="2021-01-01", end="2026-08-01"):
 
 def fetch_crypto_1h(symbol, start="2021-01-01", end="2026-08-01"):
     return fetch_crypto(symbol, TimeFrame(1, TimeFrameUnit.Hour), start, end)
+
+
+def fetch_crypto_30m(symbol, start="2021-01-01", end="2026-08-01"):
+    return fetch_crypto(symbol, TimeFrame(30, TimeFrameUnit.Minute), start, end)
+
+
+def fetch_crypto_15m(symbol, start="2021-01-01", end="2026-08-01"):
+    return fetch_crypto(symbol, TimeFrame(15, TimeFrameUnit.Minute), start, end)
+
+
+def fetch_crypto_10m(symbol, start="2021-01-01", end="2026-08-01"):
+    return fetch_crypto(symbol, TimeFrame(10, TimeFrameUnit.Minute), start, end)
+
+
+def fetch_crypto_5m(symbol, start="2021-01-01", end="2026-08-01"):
+    return fetch_crypto(symbol, TimeFrame(5, TimeFrameUnit.Minute), start, end)
+
+
+def fetch_crypto_1m(symbol, start="2021-01-01", end="2026-08-01"):
+    return fetch_crypto(symbol, TimeFrame(1, TimeFrameUnit.Minute), start, end)

@@ -189,6 +189,104 @@ be carried forward into any future work on this file.
 - This is a backtest/research deliverable only — nothing here has been wired into
   `live_trading.py`.
 
+## Corrected 2026-08-26: full 56-combo x 7-threshold grid re-run on a validated vectorbt port — every single result confirms the reversal, zero survivors
+
+The 2026-08-24 correction above only spot-checked the top 3 Phase-2 candidates.
+The full Phase 1 grids (`mtf3_sweep_phase1.csv`'s 35 3-TF combos, plus the 2-TF
+baseline table, plus every RSI- and Stochastic-threshold variant in
+`FINDINGS_RSI_SWEEP.md`/`FINDINGS_STOCH_SWEEP.md`) were never re-run on the
+fixed engine until now. This correction re-runs **all of it**: 56 timeframe
+combos (35 3-TF + 21 2-TF) x 7 threshold settings (standard 30/70+20/80, three
+tighter RSI variants, three tighter Stochastic variants) x the same 72-of-76
+symbol universe (4 crypto symbols — BNB/USD, ATOM/USD, ETC/USD, XLM/USD — are
+consistently absent from the offline cache across every timeframe and are
+skipped, same as `run_basket`'s per-symbol try/except would do) = 392
+combo/threshold cells, via a new vectorbt 1.1.0 port (`mtf3_vbt_engine.py`)
+of `backtest_mtf3.py`/`backtest_mtf.py`'s execution engine, since re-running
+the original Python-loop engine over the full grid would take on the order of
+a day (see Wall-clock below).
+
+**Headline: 0 of 392 combo/threshold cells clear t>2 anywhere in the grid.**
+Every combo that was reported positive at standard thresholds is gone:
+
+| tf_type | combos positive pre-fix (standard thresholds) | still positive post-fix |
+|---|---|---|
+| 3-TF | 15 (all 1m-anchored) | 2, both statistically insignificant (t=0.51, t=0.12) |
+| 2-TF | 5 (all 1m-anchored) | 0 |
+
+Old vs. new, 3-TF standard-threshold ranking (full table, was `mtf3_sweep_phase1.csv`):
+
+| Combo | Old n | Old avg R | Old t | New n | New avg R | New t |
+|---|---|---|---|---|---|---|
+| 1m+5m+1h | 9,163 | +0.014 | 2.77 | 8,979 | -0.000 | -0.09 |
+| 1m+5m+10m | 42,101 | +0.005 | 2.39 | 41,229 | -0.004 | -2.17 |
+| 1m+10m+1h | 9,881 | +0.011 | 2.31 | 9,661 | -0.001 | -0.24 |
+| 1m+1h+4h | 5,922 | +0.018 | 2.22 | 5,782 | -0.009 | -1.23 |
+| 1m+30m+4h | 4,278 | +0.021 | 2.22 | 4,182 | +0.004 | 0.51 |
+| 1m+15m+1h | 10,916 | +0.009 | 2.03 | 10,690 | +0.001 | 0.12 |
+| ...remaining 9 previously-positive 3-TF combos... | | | | all | negative | t as low as -2.11 |
+| 5m+10m+15m (worst, unchanged direction) | 24,157 | -0.033 | -8.49 | 23,678 | -0.039 | -9.58 |
+
+Old vs. new, 2-TF standard-threshold ranking (full table, was `mtf2_baseline_same_window.csv`):
+
+| Combo | Old n | Old avg R | Old t | New n | New avg R | New t |
+|---|---|---|---|---|---|---|
+| 1m+5m | 79,028 | +0.004 | 2.86 | 77,417 | -0.005 | -3.50 |
+| 1m+1h | 18,896 | +0.008 | 2.44 | 18,464 | -0.004 | -1.16 |
+| 1m+10m | 48,298 | +0.003 | 1.74 | 47,278 | -0.006 | -2.95 |
+| 1m+15m | 36,350 | +0.004 | 1.69 | 35,614 | -0.004 | -2.00 |
+| 1m+30m | 24,877 | +0.004 | 1.44 | 24,361 | -0.004 | -1.37 |
+| 30m+1h (worst, unchanged direction) | 6,836 | -0.089 | -9.35 | 6,711 | -0.121 | -12.24 |
+
+**The "1m execution leg matters" pattern survives directionally but not as an
+edge**: 1m-anchored combos are still meaningfully less negative than non-1m
+combos at every threshold tested (e.g. standard: pooled avg R -0.0046 vs.
+-0.0448, trade-count-weighted), so the *relative* ordering this file's original
+Phase 1 found is real. But the *absolute* claim — "every 1m-anchored combo is a
+net winner" — is false on the corrected engine. 1m-anchored combos are now a
+small loser too, just a smaller one than everything else. There is no longer
+any threshold/combo/timeframe-type cell in this entire 56x7 grid that
+qualifies as a discovered edge.
+
+See `FINDINGS_RSI_SWEEP.md` and `FINDINGS_STOCH_SWEEP.md` for their own
+correction sections (including the Stoch 5/95, 1m+5m headline — this
+investigation's single strongest number, t=4.72 — which does **not** survive
+either: new t=-0.26).
+
+**Engine/validation notes** (see `FINDINGS_STOCH_SWEEP.md`'s correction section
+for the full validation writeup): the vectorbt port was validated against
+`backtest_mtf3.py` on the standard 1m+5m+1h config before being trusted for
+the full grid. Tier 1 (per-trade, SPY/AAPL/NVDA) matched 94.4% (target ≥95%);
+Tier 2 (pooled stats, full 72-symbol universe) passed on win_rate/avg_R/profit_factor
+but missed strict tolerance on num_trades/t-stat. Every mismatch traces to one
+understood, irreducible structural gap: vectorbt's `from_signals` pipeline
+cannot check a stop-loss fill on the same bar a position enters (the stop
+check for a bar runs before that bar's entry order is processed), so the
+small fraction of trades that would have reversed and hit their stop within
+their own entry bar are missed, along with the re-entries that would have
+followed. This makes the port's numbers systematically *less negative* than
+the true original-engine numbers (the missed trades are disproportionately
+fast, adverse ones) — meaning every number in this correction is, if
+anything, a mildly conservative (optimistic) read of the reversal, not an
+inflated one. The direction and magnitude of the reversal is not in question.
+
+**Wall-clock**: the full corrected grid (54 new combo cells beyond the 2 used
+for a pre-launch smoke test, x7 thresholds x 72 symbols, indicators cached
+once per symbol/timeframe and reused across every combo that shares a
+timeframe) ran in 2,778s (~46 minutes) end to end. Two direct head-to-head
+timings against the original engine on the same data: the heaviest combo
+(1m+5m+1h) took 120.9s per threshold in the original engine (7 thresholds ≈
+846s ≈ 14.1 min for that one combo alone) vs. 92.2s for all 7 thresholds
+bundled in one vectorbt call (~9.2x faster); the lightest combo tested
+(30m+1h+4h) took 9.9s/threshold originally (7 ≈ 69s) vs. 15.6s bundled
+(~4.4x faster, since vectorbt's fixed per-call overhead matters more on
+small data). A full from-scratch re-run of the original sequential sweep
+across all 56 combos x 7 thresholds was not attempted directly (extrapolated
+from the above, it would run on the order of several hours to a day, vs. 46
+minutes for the vectorbt grid) — not worth burning the wall-clock just to
+confirm a ratio already bounded by two direct measurements at the light and
+heavy ends of the combo-weight range.
+
 ## Code
 - `strategy_mtf3.py` — 3-way RSI+Stochastic alignment signal, extends
   `strategy_mtf.py`'s lookahead-safe shifted-`merge_asof` pattern to a 2nd confirming
@@ -205,3 +303,9 @@ be carried forward into any future work on this file.
   (`mtf3_sweep_phase2_confirm.csv`)
 - `run_basket_mtf2_baseline.py` — 2-TF baseline, same universe/window
   (`mtf2_baseline_same_window.csv`)
+- **New, 2026-08-26**: `vbt_synthetic_probe_mtf3.py` — synthetic-data validation
+  of the vectorbt trailing-stop port (long AND short, 5/5 cases matched);
+  `mtf3_vbt_engine.py` — the vectorbt port itself; `validate_vectorbt_mtf3.py` —
+  Tier 1/Tier 2 validation against `backtest_mtf3.py`; `run_full_grid_mtf3_vbt.py` —
+  the full 56-combo x 7-threshold grid runner (`mtf3_vbt_full_grid_CORRECTED.csv`);
+  `compare_corrected_grid.py` — old-vs-new comparison/reporting

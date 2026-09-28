@@ -26,6 +26,38 @@ def fetch_yfinance_1h(symbol: str, period_days: int = 729) -> pd.DataFrame:
     return df[["Open", "High", "Low", "Close", "Volume"]].dropna()
 
 
+def fetch_yfinance_1m(symbol: str, period_days: int = 7) -> pd.DataFrame:
+    """Native 1m bars. Yahoo caps this interval at ~8 calendar days of
+    history total (a single request errors past that), the tightest cap of
+    any interval this project uses."""
+    df = yf.download(symbol, period=f"{period_days}d", interval="1m", auto_adjust=True, progress=False)
+    if df.empty:
+        raise ValueError(f"No 1m data returned for {symbol} from yfinance")
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    return df[["Open", "High", "Low", "Close", "Volume"]].dropna()
+
+
+def fetch_yfinance_5m(symbol: str, period_days: int = 59) -> pd.DataFrame:
+    """Native 5m bars. Yahoo caps this interval at ~60 days of history."""
+    df = yf.download(symbol, period=f"{period_days}d", interval="5m", auto_adjust=True, progress=False)
+    if df.empty:
+        raise ValueError(f"No 5m data returned for {symbol} from yfinance")
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    return df[["Open", "High", "Low", "Close", "Volume"]].dropna()
+
+
+def fetch_yfinance_15m(symbol: str, period_days: int = 59) -> pd.DataFrame:
+    """Native 15m bars. Yahoo caps this interval at ~60 days of history."""
+    df = yf.download(symbol, period=f"{period_days}d", interval="15m", auto_adjust=True, progress=False)
+    if df.empty:
+        raise ValueError(f"No 15m data returned for {symbol} from yfinance")
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    return df[["Open", "High", "Low", "Close", "Volume"]].dropna()
+
+
 def fetch_yfinance_30m(symbol: str, period_days: int = 59) -> pd.DataFrame:
     """Native 30m bars. Yahoo caps this interval at ~60 days of history."""
     df = yf.download(symbol, period=f"{period_days}d", interval="30m", auto_adjust=True, progress=False)

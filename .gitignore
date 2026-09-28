@@ -3,6 +3,8 @@
 __pycache__/
 *.pyc
 live_state.json
+live_state_v2.json
+.cache_alpaca_v2_4h/
 .cache_alpaca/
 .cache_entries_*/
 .cache_dual_entries_*/

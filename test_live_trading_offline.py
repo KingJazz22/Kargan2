@@ -294,6 +294,129 @@ def test_partial_profit_take():
         print("  OK: partial profit is one-shot per lot")
 
 
+def _make_orland_timeframe_data():
+    return {
+        "1D": make_bars(300, start_price=30.0, seed=11),
+        "1W": make_bars(120, start_price=30.0, seed=12),
+        "30D": make_bars(60, start_price=30.0, seed=13),
+        "1H": make_bars(300, start_price=30.0, seed=14),
+        "15m": make_bars(300, start_price=30.0, seed=15),
+        "5m": make_bars(300, start_price=30.0, seed=16),
+    }
+
+
+def test_orland_s1_entry_and_risk_scoping():
+    print("--- test_orland_s1_entry_and_risk_scoping ---")
+    fb = FakeBroker()
+    fb.set_price("EWZ", 30.0)
+
+    timeframe_data = _make_orland_timeframe_data()
+    forced_signal = lt.strategy_s1.Signal(
+        symbol="EWZ", direction="up", entry_price=30.0, stop=28.0, target=34.0,
+        risk=2.0, mtf_score=2.0, intensity="STRONG", confirmations={},
+    )
+
+    state = {"positions": {}, "cursors": {}}
+    args = type("Args", (), {"dry_run": False})()
+
+    with patch.object(lt.orland_data, "get_multi_timeframe", return_value=timeframe_data), \
+         patch.object(lt.strategy_s1, "check_entry", return_value=forced_signal), \
+         patch.object(lt.broker, "submit_market_buy", side_effect=fb.submit_market_buy), \
+         patch.object(lt.broker, "submit_stop_sell", side_effect=fb.submit_stop_sell):
+
+        lt.run_orland_s1(state, equity=100_000.0, halt_entries=False, args=args)
+
+        assert "EWZ|orland_s1" in state["positions"], "expected an orland_s1 position to open"
+        pos = state["positions"]["EWZ|orland_s1"]
+        # risk_amount = equity * ORLAND_RISK_PCT (half of RISK_PCT), stop_distance = 30-28 = 2
+        expected_qty = int(min((100_000.0 * lt.ORLAND_RISK_PCT) / 2.0, 100_000.0 / 30.0))
+        assert pos["shares"] == expected_qty, \
+            f"expected qty sized off ORLAND_RISK_PCT ({lt.ORLAND_RISK_PCT}), got {pos['shares']} vs {expected_qty}"
+        print(f"  OK: orland_s1 opened sized off ORLAND_RISK_PCT (half of RISK_PCT), shares={pos['shares']}")
+
+        # halt_entries=True must suppress the same signal
+        state2 = {"positions": {}, "cursors": {}}
+        lt.run_orland_s1(state2, equity=100_000.0, halt_entries=True, args=args)
+        assert "EWZ|orland_s1" not in state2["positions"], "orland halt must suppress a valid signal"
+        print("  OK: orland_s1 respects halt_entries")
+
+
+def test_orland_elder_entry():
+    print("--- test_orland_elder_entry ---")
+    fb = FakeBroker()
+    fb.set_price("EWZ", 30.0)
+
+    daily = {"EWZ": make_bars(800, start_price=30.0, seed=17)}
+    forced_signal = lt.elder_strategy.ElderSignal(
+        direction="up", entry_price=30.0, stop=28.0, target=34.0, risk=2.0,
+    )
+
+    state = {"positions": {}, "cursors": {}}
+    args = type("Args", (), {"dry_run": False})()
+
+    with patch.object(lt.broker, "fetch_daily_bars", return_value=daily), \
+         patch.object(lt.elder_strategy, "check_entry", return_value=forced_signal), \
+         patch.object(lt.broker, "submit_market_buy", side_effect=fb.submit_market_buy), \
+         patch.object(lt.broker, "submit_stop_sell", side_effect=fb.submit_stop_sell):
+
+        lt.run_orland_elder(state, equity=100_000.0, halt_entries=False, args=args)
+
+        assert "EWZ|orland_elder" in state["positions"], "expected an orland_elder position to open"
+        pos = state["positions"]["EWZ|orland_elder"]
+        expected_qty = int(min((100_000.0 * lt.ORLAND_RISK_PCT) / 2.0, 100_000.0 / 30.0))
+        assert pos["shares"] == expected_qty, \
+            f"expected qty sized off ORLAND_RISK_PCT ({lt.ORLAND_RISK_PCT}), got {pos['shares']} vs {expected_qty}"
+        print(f"  OK: orland_elder opened sized off ORLAND_RISK_PCT, shares={pos['shares']}")
+
+
+def test_orland_consecutive_loss_halt():
+    print("--- test_orland_consecutive_loss_halt ---")
+    state = {"trade_log": [], "orland_trade_log": []}
+
+    # 3 consecutive orland losses -> orland-specific halt fires
+    state["orland_trade_log"] = [{"r": -1.0, "win": False}] * lt.ORLAND_CONSEC_LOSS_HALT
+    assert lt.orland_entries_halted(state) is True, "3 consecutive orland losses should halt new orland entries"
+
+    # main risk_throttle/trade_log stay completely untouched by orland's losses
+    assert state["trade_log"] == [], "orland losses must never appear in the main trade_log"
+    main_risk = lt.update_risk_throttle(state, equity=10_000.0, peak_equity=10_000.0)
+    assert main_risk == lt.RISK_PCT, "orland losses must not throttle breakout/mtf/pcse's risk_pct"
+
+    # a win clears the halt (self-clearing sliding window, no separate reset needed)
+    state["orland_trade_log"].append({"r": 1.0, "win": True})
+    assert lt.orland_entries_halted(state) is False, "a win should clear the orland halt"
+    print("  OK: orland consecutive-loss halt is isolated from the main risk_throttle/trade_log, and self-clears on a win")
+
+
+def test_reconciliation_routes_orland_stopouts_to_orland_log():
+    print("--- test_reconciliation_routes_orland_stopouts_to_orland_log ---")
+    fb = FakeBroker()
+    fb.set_price("EWZ", 30.0)
+
+    stop_order_id = "stop-orland"
+    fb.orders[stop_order_id] = {"status": "filled", "symbol": "EWZ", "qty": 10, "stop_price": 28.0}
+    state = {"positions": {}, "cursors": {}, "trade_log": [], "orland_trade_log": []}
+    state["positions"]["EWZ|orland_s1"] = {
+        "entry_price": 30.0, "shares": 10, "atr_at_entry": 1.0, "current_stop": 28.0,
+        "initial_stop": 28.0, "trail_active": False, "extreme": 30.0,
+        "stop_order_id": stop_order_id, "direction": "up",
+    }
+
+    with patch.object(lt.broker, "get_order_status", side_effect=fb.get_order_status):
+        # mirrors main()'s reconciliation loop
+        for key in list(state["positions"].keys()):
+            s = state["positions"][key]
+            status = fb.get_order_status(s["stop_order_id"])
+            if status["status"] == "filled":
+                log_key = "orland_trade_log" if key.endswith(("|orland_s1", "|orland_elder")) else "trade_log"
+                lt.record_closed_trade(state, s, status["fill_price"], log_key=log_key)
+                del state["positions"][key]
+
+    assert len(state["orland_trade_log"]) == 1, "orland stop-out should log to orland_trade_log"
+    assert len(state["trade_log"]) == 0, "orland stop-out must NOT touch the main trade_log"
+    print("  OK: orland stop-outs route to orland_trade_log, not the main trade_log")
+
+
 if __name__ == "__main__":
     test_basic_flow()
     test_same_symbol_two_strategies()
@@ -301,4 +424,8 @@ if __name__ == "__main__":
     test_halt_entries_blocks_new_positions()
     test_risk_throttle()
     test_partial_profit_take()
+    test_orland_s1_entry_and_risk_scoping()
+    test_orland_elder_entry()
+    test_orland_consecutive_loss_halt()
+    test_reconciliation_routes_orland_stopouts_to_orland_log()
     print("\nALL OFFLINE TESTS PASSED")
