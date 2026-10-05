@@ -27,10 +27,12 @@ from datetime import datetime, timezone
 RUNNER_TARGET = os.getenv("RUNNER_TARGET", "v1")
 if RUNNER_TARGET == "v2":
     import live_trading_v2 as lt
+elif RUNNER_TARGET == "shadow":
+    import shadow_engulfing as lt
 else:
     import live_trading as lt
 
-RUN_TIMES_UTC = ["13:35", "15:35", "17:35", "19:35"]
+RUN_TIMES_UTC = ["21:30"] if RUNNER_TARGET == "shadow" else ["13:35", "15:35", "17:35", "19:35"]
 CHECK_INTERVAL_SECONDS = 30
 RUN_WINDOW_SECONDS = 300  # tolerance so a check slightly after the mark still fires
 
