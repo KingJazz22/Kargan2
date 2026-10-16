@@ -83,6 +83,46 @@ def get_open_positions() -> dict[str, dict]:
     return positions
 
 
+def is_market_open() -> bool:
+    return bool(trading_client().get_clock().is_open)
+
+
+TERMINAL_STATUSES = ("filled", "canceled", "expired", "rejected", "done_for_day")
+
+
+def _cancel_and_collect(client, order_id, timeout_seconds: int = 20):
+    """See broker_alpaca._cancel_and_collect for the reasoning."""
+    from alpaca.common.exceptions import APIError
+
+    try:
+        client.cancel_order_by_id(order_id)
+    except APIError:
+        pass  # already filled / canceled -- the status below says which
+    deadline = time.time() + timeout_seconds
+    while True:
+        fetched = client.get_order_by_id(order_id)
+        if fetched.status.value in TERMINAL_STATUSES or time.time() >= deadline:
+            return fetched
+        time.sleep(1)
+
+
+def _wait_fill_or_cancel(client, order_id, wait_fill_seconds: int) -> dict:
+    """See broker_alpaca._wait_fill_or_cancel for the reasoning."""
+    deadline = time.time() + wait_fill_seconds
+    while time.time() < deadline:
+        fetched = client.get_order_by_id(order_id)
+        if fetched.status == "filled":
+            return {"filled": True, "fill_price": float(fetched.filled_avg_price), "qty": float(fetched.filled_qty)}
+        if fetched.status.value in TERMINAL_STATUSES:
+            break
+        time.sleep(2)
+    fetched = _cancel_and_collect(client, order_id)
+    filled_qty = float(fetched.filled_qty or 0)
+    if filled_qty > 0:
+        return {"filled": True, "fill_price": float(fetched.filled_avg_price), "qty": filled_qty}
+    return {"filled": False}
+
+
 def submit_market_buy(symbol: str, qty: float, wait_fill_seconds: int = 30) -> dict:
     """Returns {"filled": False, "rejected": True, "error": "..."} if Alpaca
     rejects the order outright (insufficient buying power, wash-trade
@@ -93,6 +133,10 @@ def submit_market_buy(symbol: str, qty: float, wait_fill_seconds: int = 30) -> d
     from alpaca.trading.enums import OrderSide, TimeInForce
 
     client = trading_client()
+    if not client.get_clock().is_open:
+        # A market order outside RTH just queues for the next open -- long after
+        # the run that sized it has given up waiting.
+        return {"filled": False, "rejected": True, "error": "market closed"}
     try:
         order = client.submit_order(MarketOrderRequest(
             symbol=symbol, qty=round(qty, 4), side=OrderSide.BUY, time_in_force=TimeInForce.DAY,
@@ -100,31 +144,26 @@ def submit_market_buy(symbol: str, qty: float, wait_fill_seconds: int = 30) -> d
     except APIError as e:
         return {"filled": False, "rejected": True, "error": str(e)}
 
-    deadline = time.time() + wait_fill_seconds
-    while time.time() < deadline:
-        fetched = client.get_order_by_id(order.id)
-        if fetched.status == "filled":
-            return {"filled": True, "fill_price": float(fetched.filled_avg_price), "qty": float(fetched.filled_qty)}
-        time.sleep(2)
-    return {"filled": False}
+    return _wait_fill_or_cancel(client, order.id, wait_fill_seconds)
 
 
 def submit_market_sell(symbol: str, qty: float, wait_fill_seconds: int = 30) -> dict:
     from alpaca.trading.requests import MarketOrderRequest
     from alpaca.trading.enums import OrderSide, TimeInForce
 
-    client = trading_client()
-    order = client.submit_order(MarketOrderRequest(
-        symbol=symbol, qty=round(qty, 4), side=OrderSide.SELL, time_in_force=TimeInForce.DAY,
-    ))
+    from alpaca.common.exceptions import APIError
 
-    deadline = time.time() + wait_fill_seconds
-    while time.time() < deadline:
-        fetched = client.get_order_by_id(order.id)
-        if fetched.status == "filled":
-            return {"filled": True, "fill_price": float(fetched.filled_avg_price), "qty": float(fetched.filled_qty)}
-        time.sleep(2)
-    return {"filled": False}
+    client = trading_client()
+    if not client.get_clock().is_open:
+        return {"filled": False, "rejected": True, "error": "market closed"}
+    try:
+        order = client.submit_order(MarketOrderRequest(
+            symbol=symbol, qty=round(qty, 4), side=OrderSide.SELL, time_in_force=TimeInForce.DAY,
+        ))
+    except APIError as e:
+        return {"filled": False, "rejected": True, "error": str(e)}
+
+    return _wait_fill_or_cancel(client, order.id, wait_fill_seconds)
 
 
 def get_order_status(order_id: str) -> dict:
@@ -152,5 +191,11 @@ def submit_stop_sell(symbol: str, qty: float, stop_price: float) -> str:
     return order.id
 
 
-def cancel_order(order_id: str) -> None:
-    trading_client().cancel_order_by_id(order_id)
+def cancel_order(order_id: str) -> dict:
+    """See broker_alpaca.cancel_order -- returns the confirmed final status."""
+    fetched = _cancel_and_collect(trading_client(), order_id)
+    out = {"status": fetched.status.value}
+    if fetched.status == "filled":
+        out["fill_price"] = float(fetched.filled_avg_price)
+        out["fill_qty"] = float(fetched.filled_qty)
+    return out

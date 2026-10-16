@@ -47,7 +47,13 @@ class FakeBroker:
         return oid
 
     def cancel_order(self, order_id):
-        self.orders[order_id]["status"] = "canceled"
+        # mirrors broker_alpaca.cancel_order: confirmed final status, and a stop
+        # that already filled stays filled (the cancel can't undo it)
+        o = self.orders[order_id]
+        if o["status"] == "filled":
+            return {"status": "filled", "fill_price": o["stop_price"], "fill_qty": o["qty"]}
+        o["status"] = "canceled"
+        return {"status": "canceled"}
 
     def get_order_status(self, order_id):
         o = self.orders[order_id]
@@ -90,7 +96,7 @@ def test_basic_flow():
     # force a clean, obviously-triggering long_entry on the last bar
     daily["AAA"].loc[daily["AAA"].index[-1], "Close"] = daily["AAA"]["High"].iloc[-30:-1].max() + 5
     daily["AAA"].loc[daily["AAA"].index[-1], "Open"] = daily["AAA"]["Close"].iloc[-1]
-    daily["AAA"].loc[daily["AAA"].index[-1], "Volume"] = daily["AAA"]["Volume"].iloc[-20:].mean() * 3
+    daily["AAA"].loc[daily["AAA"].index[-1], "Volume"] = int(daily["AAA"]["Volume"].iloc[-20:].mean() * 3)
 
     with patch.object(lt.strat_bo, "prepare") as prep, patch.object(lt.broker, "fetch_daily_bars", return_value=daily), \
          patch.object(lt.broker, "get_equity", side_effect=fb.get_equity), \
@@ -211,7 +217,7 @@ def test_halt_entries_blocks_new_positions():
     daily = {"AAA": make_bars(300)}
     daily["AAA"].loc[daily["AAA"].index[-1], "Close"] = daily["AAA"]["High"].iloc[-30:-1].max() + 5
     daily["AAA"].loc[daily["AAA"].index[-1], "Open"] = daily["AAA"]["Close"].iloc[-1]
-    daily["AAA"].loc[daily["AAA"].index[-1], "Volume"] = daily["AAA"]["Volume"].iloc[-20:].mean() * 3
+    daily["AAA"].loc[daily["AAA"].index[-1], "Volume"] = int(daily["AAA"]["Volume"].iloc[-20:].mean() * 3)
 
     with patch.object(lt.strat_bo, "prepare") as prep, patch.object(lt.broker, "fetch_daily_bars", return_value=daily), \
          patch.object(lt.broker, "submit_market_buy", side_effect=fb.submit_market_buy):

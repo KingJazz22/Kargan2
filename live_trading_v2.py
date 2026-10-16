@@ -243,7 +243,11 @@ def update_trail(symbol, strategy, s, row, extreme_price, trail_mult, activate_a
                     # OLD (already-valid) price on any failure instead of leaving
                     # the cancel to stand alone.
                     old_stop_price = s["current_stop"]
-                    broker.cancel_order(s["stop_order_id"])
+                    if broker.cancel_order(s["stop_order_id"])["status"] == "filled":
+                        # stopped out while we were raising -- main()'s reconciliation
+                        # records it next run off the (unchanged) stop_order_id
+                        print(f"  {symbol}/{strategy}: stop filled before the raise -- leaving it to reconciliation")
+                        return
                     try:
                         s["stop_order_id"] = broker.submit_stop_sell(symbol, pos_qty, new_stop)
                         s["current_stop"] = new_stop
@@ -270,11 +274,37 @@ def check_partial_profit(symbol, strategy, s, current_price, args):
     print(f"  {symbol}/{strategy}: +{favorable_r:.2f}R -- taking partial profit on {qty_to_sell}/{s['shares']} shares")
     if args.dry_run:
         return
-    broker.cancel_order(s["stop_order_id"])
-    broker.submit_market_sell(symbol, qty_to_sell)
-    s["shares"] -= qty_to_sell
+    if broker.cancel_order(s["stop_order_id"])["status"] == "filled":
+        return  # stopped out first -- reconciliation records it next run
+    fill = broker.submit_market_sell(symbol, qty_to_sell)
+    sold = fill["qty"] if fill.get("filled") else 0
+    s["shares"] -= sold
     s["stop_order_id"] = broker.submit_stop_sell(symbol, s["shares"], s["current_stop"])
-    s["partial_taken"] = True
+    s["partial_taken"] = sold > 0  # nothing sold -> retry on a later run
+
+
+def exit_lot_at_market(symbol, s):
+    """Closes a lot at market: confirmed stop cancel FIRST, then the sell.
+    Selling straight after a bare cancel failed live (HD, v2): the not-yet-
+    cancelled stop still reserved the shares, the sell was refused, the run
+    aborted, and the next run found the stop cancelled and dropped the lot --
+    leaving 8 shares held with no stop. Returns the exit price, or None when
+    the lot is still open (sell refused / not fully filled -- the stop is
+    re-placed for what's left), in which case the caller must keep the lot."""
+    cancel = broker.cancel_order(s["stop_order_id"])
+    if cancel["status"] == "filled":
+        print(f"    {symbol}: stop filled @ {cancel['fill_price']:.2f} before the cancel landed")
+        return cancel["fill_price"]
+    fill = broker.submit_market_sell(symbol, s["shares"])
+    sold = fill["qty"] if fill.get("filled") else 0
+    if sold >= s["shares"]:
+        return fill["fill_price"]
+    s["shares"] -= sold
+    s["stop_order_id"] = broker.submit_stop_sell(symbol, s["shares"], s["current_stop"])
+    reason = fill.get("error", f"sold {sold:g}")
+    print(f"    {symbol}: exit sell incomplete ({reason}) -- keeping {s['shares']:g} shares, "
+          f"stop re-placed @ {s['current_stop']:.2f}")
+    return None
 
 
 def record_closed_trade(state, s, exit_price):
@@ -374,9 +404,9 @@ def run_swing_pcse_exit(state, equity, risk_pct, halt_entries, args, bars):
             if float(row["High"]) >= tp_price:
                 print(f"  {symbol}/swing_pcse: take-profit touched (~{tp_price:.2f}) -- closing")
                 if not args.dry_run:
-                    broker.cancel_order(s["stop_order_id"])
-                    fill = broker.submit_market_sell(symbol, s["shares"])
-                    exit_price = fill["fill_price"] if fill.get("filled") else float(tp_price)
+                    exit_price = exit_lot_at_market(symbol, s)
+                    if exit_price is None:
+                        continue
                     record_closed_trade(state, s, exit_price)
                 del state["positions"][key]
                 continue
@@ -429,9 +459,9 @@ def run_pcse(state, equity, risk_pct, halt_entries, args):
                 if tp_price > s["entry_price"] and float(row["High"]) >= tp_price:
                     print(f"  {symbol}/pcse: take-profit touched (~{tp_price:.2f}) -- closing")
                     if not args.dry_run:
-                        broker.cancel_order(s["stop_order_id"])
-                        fill = broker.submit_market_sell(symbol, s["shares"])
-                        exit_price = fill["fill_price"] if fill.get("filled") else tp_price
+                        exit_price = exit_lot_at_market(symbol, s)
+                        if exit_price is None:
+                            continue
                         record_closed_trade(state, s, exit_price)
                     del state["positions"][key]
                     continue
@@ -455,6 +485,53 @@ def run_pcse(state, equity, risk_pct, halt_entries, args):
                 state["positions"][key] = entry
 
 
+def reconcile(state, broker_positions, args):
+    """Syncs each tracked lot with its own stop order (filled -> closed;
+    cancelled while still held -> re-protected) and flags broker shares no
+    lot accounts for."""
+    for key in list(state["positions"].keys()):
+        s = state["positions"][key]
+        if args.dry_run:
+            continue
+        status = broker.get_order_status(s["stop_order_id"])
+        if status["status"] == "filled":
+            print(f"  {key}: stopped out @ {status['fill_price']:.2f} -- clearing local state")
+            record_closed_trade(state, s, status["fill_price"])
+            del state["positions"][key]
+        elif status["status"] in ("canceled", "expired", "rejected"):
+            # The shares are usually still held (a cancel that outlived a failed
+            # exit, a manual cancel) -- dropping the lot here is what turned HD
+            # into an untracked, unprotected position. Re-protect it instead.
+            symbol = key.split("|")[0]
+            held = broker_positions.get(symbol, {}).get("qty", 0.0)
+            tracked_elsewhere = sum(o["shares"] for k, o in state["positions"].items()
+                                    if k != key and k.split("|")[0] == symbol)
+            if held - tracked_elsewhere < s["shares"]:
+                print(f"  {key}: stop order {status['status']} and shares no longer held -- clearing local state, check the account manually")
+                del state["positions"][key]
+                continue
+            try:
+                s["stop_order_id"] = broker.submit_stop_sell(symbol, s["shares"], s["current_stop"])
+                print(f"  {key}: stop order {status['status']} unexpectedly -- re-placed @ {s['current_stop']:.2f}")
+            except Exception as e:
+                # most likely price is already below the stop -- exit like the stop would have
+                print(f"  {key}: stop order {status['status']} and re-placing failed ({e!r}) -- closing at market")
+                fill = broker.submit_market_sell(symbol, s["shares"])
+                if fill.get("filled"):
+                    record_closed_trade(state, s, fill["fill_price"])
+                    del state["positions"][key]
+
+    # Shares the broker holds beyond every tracked lot have no stop managed by
+    # this bot (e.g. an abandoned entry order that filled later) -- flag them loudly.
+    tracked_qty = {}
+    for k, o in state["positions"].items():
+        tracked_qty[k.split("|")[0]] = tracked_qty.get(k.split("|")[0], 0.0) + o["shares"]
+    for symbol, p in broker_positions.items():
+        untracked = p["qty"] - tracked_qty.get(symbol, 0.0)
+        if untracked > 0:
+            print(f"  !!! {symbol}: {untracked:g} shares held but not tracked by any lot (no managed stop)")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
@@ -471,18 +548,7 @@ def main():
     broker_positions = broker.get_open_positions()
     print(f"Account equity: ${equity:,.2f} | distinct symbols held: {len(broker_positions)} | tracked lots: {len(state['positions'])}")
 
-    for key in list(state["positions"].keys()):
-        s = state["positions"][key]
-        if args.dry_run:
-            continue
-        status = broker.get_order_status(s["stop_order_id"])
-        if status["status"] == "filled":
-            print(f"  {key}: stopped out @ {status['fill_price']:.2f} -- clearing local state")
-            record_closed_trade(state, s, status["fill_price"])
-            del state["positions"][key]
-        elif status["status"] in ("canceled", "expired", "rejected"):
-            print(f"  {key}: stop order {status['status']} unexpectedly -- clearing local state, check the account manually")
-            del state["positions"][key]
+    reconcile(state, broker_positions, args)
 
     peak_equity = max(state.get("peak_equity", equity), equity)
     state["peak_equity"] = peak_equity
