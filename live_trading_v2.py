@@ -89,6 +89,7 @@ import pandas as pd
 
 import bar_cache_v2
 import broker_alpaca_v2 as broker
+import circuit_breaker
 import strategy_breakout as strat_bo
 import strategy_pcse_final as strat_pcse
 import strategy_swing_breakout as strat_swing
@@ -123,7 +124,7 @@ SWING_PCSE_TP_ATR_MULT = 3.0
 # existing positions still get managed to close normally.
 BREAKOUT_HUNTER_ENABLED = False
 
-CIRCUIT_BREAKER_DD_PCT = 0.15
+CIRCUIT_BREAKER_DD_PCT = 0.15  # re-arms after circuit_breaker.COOLDOWN_DAYS -- see circuit_breaker.py
 DAILY_LOSS_LIMIT_PCT = 0.04
 RISK_THROTTLE_MULT = 0.7
 RISK_THROTTLE_LOOKBACK = 20
@@ -550,10 +551,6 @@ def main():
 
     reconcile(state, broker_positions, args)
 
-    peak_equity = max(state.get("peak_equity", equity), equity)
-    state["peak_equity"] = peak_equity
-    drawdown_pct = (peak_equity - equity) / peak_equity if peak_equity > 0 else 0.0
-
     today_str = str(datetime.now().date())
     if state.get("daily_start_date") != today_str:
         state["daily_start_date"] = today_str
@@ -561,17 +558,15 @@ def main():
     daily_start_equity = state.get("daily_start_equity", equity)
     daily_loss_pct = (daily_start_equity - equity) / daily_start_equity if daily_start_equity > 0 else 0.0
 
-    halt_entries = False
-    if drawdown_pct >= CIRCUIT_BREAKER_DD_PCT:
-        print(f"\n!!! CIRCUIT BREAKER: equity ${equity:,.2f} is {drawdown_pct:.1%} below peak ${peak_equity:,.2f} -- new entries halted")
-        halt_entries = True
-    elif daily_loss_pct >= DAILY_LOSS_LIMIT_PCT:
+    halt_entries, breaker_risk_mult = circuit_breaker.check(state, equity, CIRCUIT_BREAKER_DD_PCT)
+    peak_equity = state["peak_equity"]
+    if not halt_entries and daily_loss_pct >= DAILY_LOSS_LIMIT_PCT:
         print(f"\n!!! DAILY LOSS GATE: equity down {daily_loss_pct:.1%} today (from ${daily_start_equity:,.2f}) -- new entries halted until tomorrow")
         halt_entries = True
 
-    risk_pct = update_risk_throttle(state, equity, peak_equity)
+    risk_pct = update_risk_throttle(state, equity, peak_equity) * breaker_risk_mult
     if risk_pct < RISK_PCT:
-        print(f"  risk throttled to {risk_pct:.2%} of equity per trade (recent performance below bar)")
+        print(f"  risk reduced to {risk_pct:.2%} of equity per trade (risk throttle and/or circuit-breaker recovery)")
 
     daily_bars = broker.fetch_daily_bars(SYMBOLS)  # fetched once, shared by both daily strategies below
     # try/finally: one strategy raising shouldn't skip save_state for

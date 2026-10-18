@@ -80,6 +80,7 @@ import pandas as pd
 from indicators_core import atr
 
 import broker_alpaca as broker
+import circuit_breaker
 import strategy_breakout as strat_bo
 import strategy_mtf as strat_mtf
 import strategy_pcse_final as strat_pcse
@@ -144,7 +145,8 @@ MTF_ENTRIES_DISABLED = True
 
 # Circuit breaker: halt NEW entries (existing positions still get managed --
 # trails still raised, PCSE take-profits still taken) once equity draws down
-# this much from its running peak. New entries resume once equity recovers.
+# this much from its running peak. Re-arms after circuit_breaker.COOLDOWN_DAYS
+# halted, at reduced risk until the old peak is regained -- see circuit_breaker.py.
 CIRCUIT_BREAKER_DD_PCT = 0.15
 # Daily loss gate: halt new entries for the rest of the calendar day once
 # equity is down this much from today's first-run equity.
@@ -790,10 +792,6 @@ def main():
     # Peak-equity circuit breaker + daily loss gate: both only ever block NEW
     # entries below (run_* still manage/trail/take-profit existing positions
     # regardless -- halting means "stop adding risk", not "abandon positions").
-    peak_equity = max(state.get("peak_equity", equity), equity)
-    state["peak_equity"] = peak_equity
-    drawdown_pct = (peak_equity - equity) / peak_equity if peak_equity > 0 else 0.0
-
     today_str = str(datetime.now().date())
     if state.get("daily_start_date") != today_str:
         state["daily_start_date"] = today_str
@@ -801,17 +799,15 @@ def main():
     daily_start_equity = state.get("daily_start_equity", equity)
     daily_loss_pct = (daily_start_equity - equity) / daily_start_equity if daily_start_equity > 0 else 0.0
 
-    halt_entries = False
-    if drawdown_pct >= CIRCUIT_BREAKER_DD_PCT:
-        print(f"\n!!! CIRCUIT BREAKER: equity ${equity:,.2f} is {drawdown_pct:.1%} below peak ${peak_equity:,.2f} -- new entries halted")
-        halt_entries = True
-    elif daily_loss_pct >= DAILY_LOSS_LIMIT_PCT:
+    halt_entries, breaker_risk_mult = circuit_breaker.check(state, equity, CIRCUIT_BREAKER_DD_PCT)
+    peak_equity = state["peak_equity"]
+    if not halt_entries and daily_loss_pct >= DAILY_LOSS_LIMIT_PCT:
         print(f"\n!!! DAILY LOSS GATE: equity down {daily_loss_pct:.1%} today (from ${daily_start_equity:,.2f}) -- new entries halted until tomorrow")
         halt_entries = True
 
-    risk_pct = update_risk_throttle(state, equity, peak_equity)
+    risk_pct = update_risk_throttle(state, equity, peak_equity) * breaker_risk_mult
     if risk_pct < RISK_PCT:
-        print(f"  risk throttled to {risk_pct:.2%} of equity per trade (recent performance below bar)")
+        print(f"  risk reduced to {risk_pct:.2%} of equity per trade (risk throttle and/or circuit-breaker recovery)")
 
     orland_halt = halt_entries or orland_entries_halted(state)
     if orland_halt and not halt_entries:

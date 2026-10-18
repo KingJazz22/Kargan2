@@ -46,6 +46,11 @@ PCSE_SYMBOLS = US_SYMBOLS                       # PCSE was only ever validated o
 
 STARTING_EQUITY = 9995.18                       # same baseline used throughout this project's simulations
 CIRCUIT_BREAKER_DD_PCT = 0.15
+# None = the breaker latches (original behaviour). N = after N calendar days
+# halted, re-arm: peak resets to current equity and entries resume at
+# CIRCUIT_BREAKER_REARM_RISK_MULT x risk until equity regains the old peak.
+CIRCUIT_BREAKER_COOLDOWN_DAYS = None
+CIRCUIT_BREAKER_REARM_RISK_MULT = 1.0
 DAILY_LOSS_LIMIT_PCT = 0.04
 RISK_THROTTLE_MULT = 0.7
 RISK_THROTTLE_LOOKBACK = 20
@@ -194,6 +199,8 @@ def replay_shared_ledger(all_trades, risk_pct):
     daily_start_date = None
     daily_start_equity = STARTING_EQUITY
     risk_throttled = False
+    breaker_tripped_at = None
+    recovery_target = None       # old peak to regain after a re-arm
     entries_blocked_circuit = 0
     entries_blocked_daily = 0
     entries_taken = 0
@@ -226,9 +233,18 @@ def replay_shared_ledger(all_trades, risk_pct):
             daily_loss_pct = (daily_start_equity - equity) / daily_start_equity if daily_start_equity > 0 else 0.0
 
             if drawdown_pct >= CIRCUIT_BREAKER_DD_PCT:
-                entries_blocked_circuit += 1
-                equity_curve.append((ts, equity_now()))
-                continue
+                breaker_tripped_at = breaker_tripped_at or ts
+                if CIRCUIT_BREAKER_COOLDOWN_DAYS is not None and (ts - breaker_tripped_at) >= pd.Timedelta(days=CIRCUIT_BREAKER_COOLDOWN_DAYS):
+                    recovery_target = max(recovery_target or 0.0, peak_equity)
+                    peak_equity, breaker_tripped_at = equity, None
+                else:
+                    entries_blocked_circuit += 1
+                    equity_curve.append((ts, equity_now()))
+                    continue
+            else:
+                breaker_tripped_at = None
+            if recovery_target is not None and equity >= recovery_target:
+                recovery_target = None
             if daily_loss_pct >= DAILY_LOSS_LIMIT_PCT:
                 entries_blocked_daily += 1
                 equity_curve.append((ts, equity_now()))
@@ -247,6 +263,8 @@ def replay_shared_ledger(all_trades, risk_pct):
             if equity >= peak_equity:
                 risk_throttled = False
             effective_risk_pct = risk_pct * RISK_THROTTLE_MULT if risk_throttled else risk_pct
+            if recovery_target is not None:
+                effective_risk_pct *= CIRCUIT_BREAKER_REARM_RISK_MULT
 
             risk_amount = equity * effective_risk_pct
             stop_distance = t["stop_distance"]
