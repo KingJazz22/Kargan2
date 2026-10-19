@@ -1,0 +1,29 @@
+trades=2146  symbols=104  2016-05-02 -> 2026-09-21
+baseline: win=0.919  mean R=+0.1196  t=16.27  PSR(>0)=1.000  exits={'take_profit': 1972, 'stop_loss': 174}
+
+=== logit ===  OOS AUC per test group: mean 0.521  min 0.429  max 0.659
+  [filter] delta R/risk per path: +0.0014 -0.0059 +0.0006 +0.0011 +0.0042
+  [filter] pooled: policy R/risk=+0.1207 vs base +0.1196  delta=+0.0011  95%CI[-0.0064,+0.0090]  p=0.3902  IS-sym delta=-0.0074  OOS-sym delta=+0.0038
+  [filter] kept 1723/2146; win rate kept=0.920 skipped=0.915; losers skipped 36/174
+  [filter] ledger 2% risk: base return=+324.0% maxDD=-11.5% sharpe=3.31 | filtered return=+241.1% maxDD=-14.0% sharpe=2.87
+  [filter] criteria (all paths>0, p<0.0125, both halves>0, ledger): [False, np.False_, np.False_, np.False_] -> FAIL
+  [size] delta R/risk per path: +0.0128 -0.0051 +0.0055 +0.0067 +0.0046
+  [size] pooled: policy R/risk=+0.1246 vs base +0.1196  delta=+0.0050  95%CI[-0.0021,+0.0121]  p=0.0888  IS-sym delta=-0.0005  OOS-sym delta=+0.0066
+  [size] criteria (all paths>0, p<0.0125, both halves>0): [False, np.False_, np.False_] -> FAIL
+
+=== lgbm ===  OOS AUC per test group: mean 0.514  min 0.362  max 0.644
+  top features (gain): spy_rv20=2110, atr_pct=1889, adx14=1754, breakout_atr=1626, ret60=1588, vol_ratio=1566
+  [filter] delta R/risk per path: +0.0078 -0.0046 +0.0030 +0.0005 +0.0003
+  [filter] pooled: policy R/risk=+0.1275 vs base +0.1196  delta=+0.0079  95%CI[-0.0030,+0.0211]  p=0.1044  IS-sym delta=+0.0058  OOS-sym delta=+0.0085
+  [filter] kept 1614/2146; win rate kept=0.925 skipped=0.900; losers skipped 53/174
+  [filter] ledger 2% risk: base return=+324.0% maxDD=-11.5% sharpe=3.31 | filtered return=+340.6% maxDD=-14.0% sharpe=3.50
+  [filter] criteria (all paths>0, p<0.0125, both halves>0, ledger): [False, np.False_, np.True_, np.False_] -> FAIL
+  [size] delta R/risk per path: +0.0086 -0.0006 -0.0013 +0.0024 -0.0018
+  [size] pooled: policy R/risk=+0.1211 vs base +0.1196  delta=+0.0015  95%CI[-0.0052,+0.0081]  p=0.3314  IS-sym delta=-0.0023  OOS-sym delta=+0.0024
+  [size] criteria (all paths>0, p<0.0125, both halves>0): [False, np.False_, np.False_] -> FAIL
+
+=== SUMMARY ===
+  logit  filter  delta=+0.0011  p=0.3902  FAIL
+  logit  size    delta=+0.0050  p=0.0888  FAIL
+  lgbm   filter  delta=+0.0079  p=0.1044  FAIL
+  lgbm   size    delta=+0.0015  p=0.3314  FAIL

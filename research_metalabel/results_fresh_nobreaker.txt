@@ -1,0 +1,32 @@
+=== H1 replication ===
+  old-104  n= 2178 symbols= 101 win=0.933 meanR=+0.1371 t=20.58 exits={'take_profit': 2032, 'stop_loss': 146}
+  fresh    n= 7683 symbols= 580 win=0.884 meanR=+0.0807 t=18.06 exits={'take_profit': 6776, 'stop_loss': 852, 'delisted': 55}
+  fresh 2016-2020: n=4000 meanR=+0.0728 t=11.42
+  fresh 2021-2026: n=3683 meanR=+0.0893 t=14.30
+  fresh, names no longer in S&P (survivorship check): n=1548 meanR=-0.0088 t=-0.72
+  H1 -> FAIL
+
+=== H2 capital efficiency (fresh set, 2% risk ledger) ===
+  baseline full      taken=1197 return= +248.7% CAGR= 12.6% sharpe=2.09 maxDD=-18.8%
+  baseline 2016-2020 taken= 580 return=  +66.4% CAGR=  5.9% sharpe=1.67 maxDD=-18.8%
+  baseline 2021-2026 taken= 674 return= +150.4% CAGR= 17.2% sharpe=2.67 maxDD=-9.2%
+  baseline symA      taken=1037 return= +165.4% CAGR=  9.7% sharpe=1.69 maxDD=-18.0%
+  baseline symB      taken=1088 return= +282.0% CAGR= 13.6% sharpe=2.31 maxDD=-13.4%
+  rank     full      taken=1294 return= +311.2% CAGR= 14.4% sharpe=2.15 maxDD=-21.9%
+  rank     2016-2020 taken= 613 return=  +63.1% CAGR=  5.7% sharpe=1.44 maxDD=-21.9%
+  rank     2021-2026 taken= 743 return= +184.3% CAGR= 19.8% sharpe=2.75 maxDD=-12.8%
+  rank     symA      taken=1157 return= +257.3% CAGR= 12.9% sharpe=2.08 maxDD=-18.8%
+  rank     symB      taken=1140 return= +268.9% CAGR= 13.2% sharpe=2.28 maxDD=-16.7%
+  floor    full      taken=1145 return= +212.2% CAGR= 11.4% sharpe=1.90 maxDD=-27.5%
+  floor    2016-2020 taken= 550 return=  +46.9% CAGR=  4.4% sharpe=1.22 maxDD=-27.5%
+  floor    2021-2026 taken= 637 return= +133.0% CAGR= 15.8% sharpe=2.47 maxDD=-14.6%
+  floor    symA      taken= 962 return= +139.1% CAGR=  8.7% sharpe=1.66 maxDD=-22.7%
+  floor    symB      taken=1011 return= +190.6% CAGR= 10.7% sharpe=1.97 maxDD=-20.7%
+  H2 rank -> FAIL
+  H2 floor -> FAIL
+
+=== H3 meta-labeler transfer (fit on old-104 trades, applied to fresh trades) ===
+  logit AUC=0.529 kept=6706/7683 losers skipped=132/889 delta=+0.0037 95%CI[-0.0011,+0.0094] p=0.0864 halves +0.0021/+0.0050 ledger CAGR=13.3% (base 12.6%) sharpe=2.25 maxDD=-15.6% -> FAIL
+  lgbm  AUC=0.551 kept=6398/7683 losers skipped=194/889 delta=+0.0093 95%CI[+0.0027,+0.0177] p=0.0156 halves +0.0132/+0.0051 ledger CAGR=14.0% (base 12.6%) sharpe=2.39 maxDD=-17.1% -> FAIL
+  rf    AUC=0.547 kept=6297/7683 losers skipped=198/889 delta=+0.0082 95%CI[+0.0008,+0.0181] p=0.0452 halves +0.0143/+0.0016 ledger CAGR=15.9% (base 12.6%) sharpe=2.65 maxDD=-11.7% -> FAIL
+  mlp   AUC=0.506 kept=6035/7683 losers skipped=182/889 delta=-0.0018 95%CI[-0.0078,+0.0043] p=0.7210 halves -0.0028/+0.0001 ledger CAGR=13.6% (base 12.6%) sharpe=2.25 maxDD=-22.3% -> FAIL

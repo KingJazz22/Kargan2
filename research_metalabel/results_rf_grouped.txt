@@ -1,0 +1,24 @@
+trades=9861 losers=1035 symbols=681
+sector counts: {'XLI': 1821, 'XLK': 1376, 'XLF': 1199, 'unknown': 899, 'XLV': 873, 'XLY': 803, 'XLP': 657, 'XLB': 587, 'XLU': 505, 'XLRE': 481, 'XLE': 429, 'XLC': 231}
+loss rate by liquidity tercile: {'high': 0.093, 'low': 0.128, 'mid': 0.106}
+loss rate by sector: {'XLB': 0.124, 'XLC': 0.16, 'XLE': 0.131, 'XLF': 0.113, 'XLI': 0.096, 'XLK': 0.092, 'XLP': 0.114, 'XLRE': 0.112, 'XLU': 0.063, 'XLV': 0.105, 'XLY': 0.131, 'unknown': 0.081}
+loss rate by regime: {'bear': 0.088, 'bull': 0.108}
+  2019 (train 2738, test 1039): A=0.579 B=0.585 C=0.572 D=0.573 E=0.592 F=0.579 G=0.591 | per-stock models trained: 0
+  2020 (train 3660, test 1146): A=0.447 B=0.503 C=0.399 D=0.397 E=0.396 F=0.447 G=0.394 | per-stock models trained: 0
+  2021 (train 4846, test 1065): A=0.542 B=0.527 C=0.528 D=0.521 E=0.548 F=0.542 G=0.536 | per-stock models trained: 0
+  2022 (train 5929, test 754): A=0.553 B=0.541 C=0.560 D=0.467 E=0.525 F=0.553 G=0.531 | per-stock models trained: 0
+  2023 (train 6617, test 702): A=0.508 B=0.577 C=0.532 D=0.464 E=0.501 F=0.508 G=0.515 | per-stock models trained: 0
+  2024 (train 7344, test 904): A=0.611 B=0.580 C=0.574 D=0.554 E=0.614 F=0.611 G=0.615 | per-stock models trained: 0
+  2025 (train 8302, test 801): A=0.519 B=0.520 C=0.529 D=0.514 E=0.530 F=0.519 G=0.522 | per-stock models trained: 0
+  2026 (train 9108, test 505): A=0.511 B=0.602 C=0.533 D=0.481 E=0.507 F=0.511 G=0.523 | per-stock models trained: 0
+
+stocks qualifying for their own model (>= 40 trades and >= 5 losers in a training window): 0-0 per year, out of 681
+
+design              mean AUC   years > A  filter dR       p   kept verdict
+A_pooled               0.534           -    +0.0095  0.0206   5491 
+B_pooled+groups        0.554           5    +0.0099  0.0088   5649 no
+C_per_liquidity        0.528           4    +0.0039  0.1250   5590 no
+D_per_sector           0.497           0    +0.0021  0.2868   5542 no
+E_per_regime           0.527           4    +0.0099  0.0156   5524 no
+F_per_stock            0.534           0    +0.0095  0.0256   5491 no
+G_blend                0.529           5    +0.0073  0.0582   5445 no
