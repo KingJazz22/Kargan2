@@ -90,11 +90,12 @@ import pandas as pd
 import bar_cache_v2
 import broker_alpaca_v2 as broker
 import circuit_breaker
+import rf_shadow
 import strategy_breakout as strat_bo
 import strategy_pcse_final as strat_pcse
 import strategy_swing_breakout as strat_swing
 from basket import US_SYMBOLS
-from state_store_v2 import load_state, save_state
+from state_store_v2 import STATE_DIR, load_state, save_state
 from test_mtf_oos_symbols import OOS_US_SYMBOLS
 
 SYMBOLS = US_SYMBOLS + OOS_US_SYMBOLS  # 47-symbol IS/OOS universe both breakout strategies were validated on
@@ -424,6 +425,10 @@ def run_swing_pcse_exit(state, equity, risk_pct, halt_entries, args, bars):
             entry_hint = float(entry_row["Close"])
             initial_stop = entry_hint - SWING_PCSE_SL_ATR_MULT * atr_sig
             print(f"  {symbol}: SWING+PCSE-EXIT entry signal" + (" (entries halted)" if halt_entries else ""))
+            # log-only RF score (FINDINGS_RF_GROUPED.md); cannot change or block the order below
+            rf_shadow.log_signal(symbol, prepared, entry_ts, bars, broker.fetch_daily_bars, entry_hint, atr_sig,
+                                 initial_stop, entry_hint + SWING_PCSE_TP_ATR_MULT * atr_sig,
+                                 halt_entries, args.dry_run, STATE_DIR)
             if args.dry_run or halt_entries:
                 continue
             entry = place_entry("swing_pcse", symbol, entry_hint, initial_stop, atr_sig, equity, risk_pct)
