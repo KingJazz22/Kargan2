@@ -143,6 +143,16 @@ MTF_PARAMS = {
 # clears the bar.
 MTF_ENTRIES_DISABLED = True
 
+# Breakout Hunter and Swing-Structure Breakout (trailing exit): random entries
+# run through each one's own unchanged exit engine beat the real signals in
+# 10/10 draws (BH +0.026R real vs +0.091R random; swing +0.040R vs +0.076R),
+# and alone each only matches or trails SPY at the same exposure under an
+# honest daily-marked ledger -- FINDINGS_ALL_BOTS.md. Same halt-new-entries
+# pattern as MTF: run_* still manage already-open positions to their normal
+# exits. PCSE (the one entry that beats random) and Orland are unaffected.
+BREAKOUT_HUNTER_ENTRIES_DISABLED = True
+SWING_BREAKOUT_ENTRIES_DISABLED = True
+
 # Circuit breaker: halt NEW entries (existing positions still get managed --
 # trails still raised, PCSE take-profits still taken) once equity draws down
 # this much from its running peak. Re-arms after circuit_breaker.COOLDOWN_DAYS
@@ -826,8 +836,11 @@ def main():
     # (see broker.submit_market_buy) -- this is defense in depth for anything
     # else (bad data, a network blip) that still could.
     try:
-        run_breakout(state, equity, risk_pct, halt_entries, args)
-        run_swing_breakout(state, equity, risk_pct, halt_entries, args)
+        if BREAKOUT_HUNTER_ENTRIES_DISABLED or SWING_BREAKOUT_ENTRIES_DISABLED:
+            print("\n(Breakout Hunter / Swing-Structure new entries disabled -- FINDINGS_ALL_BOTS.md; "
+                  "open positions still managed)")
+        run_breakout(state, equity, risk_pct, halt_entries or BREAKOUT_HUNTER_ENTRIES_DISABLED, args)
+        run_swing_breakout(state, equity, risk_pct, halt_entries or SWING_BREAKOUT_ENTRIES_DISABLED, args)
         any_open_mtf = any(k.endswith("|mtf") for k in state["positions"])
         if MTF_ENTRIES_DISABLED and not any_open_mtf:
             # Skip the fetch entirely: no position to manage and no new entries
