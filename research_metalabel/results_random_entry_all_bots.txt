@@ -1,0 +1,42 @@
+
+=== pcse: 20 segments ===
+  REAL entries : trades=492.000 win%=76.829 avg_R=0.190 t=5.375 avg_hold_d=26.539 R_per_100d=0.714
+  random  1    : trades=852.000 win%=76.878 avg_R=0.153 t=5.853 avg_hold_d=26.439 R_per_100d=0.580
+  random  2    : trades=835.000 win%=77.605 avg_R=0.169 t=6.479 avg_hold_d=25.256 R_per_100d=0.668
+  random  3    : trades=838.000 win%=75.776 avg_R=0.129 t=4.994 avg_hold_d=25.830 R_per_100d=0.499
+  random  4    : trades=845.000 win%=77.041 avg_R=0.163 t=6.290 avg_hold_d=26.850 R_per_100d=0.607
+  random  5    : trades=855.000 win%=78.480 avg_R=0.166 t=6.636 avg_hold_d=26.912 R_per_100d=0.617
+  random  6    : trades=851.000 win%=75.676 avg_R=0.141 t=5.362 avg_hold_d=26.390 R_per_100d=0.533
+  random  7    : trades=846.000 win%=77.305 avg_R=0.175 t=6.578 avg_hold_d=26.193 R_per_100d=0.670
+  random  8    : trades=843.000 win%=75.208 avg_R=0.134 t=5.030 avg_hold_d=26.768 R_per_100d=0.502
+  random  9    : trades=860.000 win%=76.395 avg_R=0.156 t=5.765 avg_hold_d=26.805 R_per_100d=0.580
+  random 10    : trades=837.000 win%=77.180 avg_R=0.177 t=6.474 avg_hold_d=26.614 R_per_100d=0.665
+  -> real avg_R +0.1895 vs random mean +0.1563 (range +0.1288..+0.1771); random beats real in 0/10 draws
+
+=== breakout_hunter: 734 segments ===
+  REAL entries : trades=5530.000 win%=53.146 avg_R=0.026 t=2.532 avg_hold_d=31.912 R_per_100d=0.082
+  random  1    : trades=9318.000 win%=47.188 avg_R=0.085 t=5.691 avg_hold_d=26.527 R_per_100d=0.320
+  random  2    : trades=9359.000 win%=46.714 avg_R=0.085 t=5.643 avg_hold_d=26.149 R_per_100d=0.325
+  random  3    : trades=9409.000 win%=47.231 avg_R=0.079 t=5.446 avg_hold_d=26.883 R_per_100d=0.293
+  random  4    : trades=9386.000 win%=47.209 avg_R=0.097 t=5.808 avg_hold_d=26.177 R_per_100d=0.370
+  random  5    : trades=9316.000 win%=47.510 avg_R=0.086 t=5.805 avg_hold_d=26.538 R_per_100d=0.322
+  random  6    : trades=9340.000 win%=46.745 avg_R=0.071 t=4.799 avg_hold_d=26.976 R_per_100d=0.263
+  random  7    : trades=9312.000 win%=47.627 avg_R=0.106 t=6.773 avg_hold_d=26.804 R_per_100d=0.395
+  random  8    : trades=9337.000 win%=47.328 avg_R=0.109 t=6.552 avg_hold_d=26.692 R_per_100d=0.408
+  random  9    : trades=9338.000 win%=47.184 avg_R=0.095 t=6.391 avg_hold_d=27.189 R_per_100d=0.350
+  random 10    : trades=9381.000 win%=47.244 avg_R=0.093 t=6.379 avg_hold_d=26.636 R_per_100d=0.348
+  -> real avg_R +0.0263 vs random mean +0.0905 (range +0.0710..+0.1090); random beats real in 10/10 draws
+
+=== swing_structure: 734 segments ===
+  REAL entries : trades=13134.000 win%=53.487 avg_R=0.040 t=5.531 avg_hold_d=34.251 R_per_100d=0.116
+  random  1    : trades=26525.000 win%=46.375 avg_R=0.088 t=9.719 avg_hold_d=26.899 R_per_100d=0.328
+  random  2    : trades=26347.000 win%=46.024 avg_R=0.078 t=8.385 avg_hold_d=27.086 R_per_100d=0.290
+  random  3    : trades=26569.000 win%=46.385 avg_R=0.073 t=8.211 avg_hold_d=26.666 R_per_100d=0.274
+  random  4    : trades=26387.000 win%=46.121 avg_R=0.075 t=8.405 avg_hold_d=26.949 R_per_100d=0.278
+  random  5    : trades=26724.000 win%=45.757 avg_R=0.059 t=6.933 avg_hold_d=26.645 R_per_100d=0.221
+  random  6    : trades=26560.000 win%=45.610 avg_R=0.076 t=7.451 avg_hold_d=26.879 R_per_100d=0.283
+  random  7    : trades=26598.000 win%=46.018 avg_R=0.079 t=8.514 avg_hold_d=26.557 R_per_100d=0.298
+  random  8    : trades=26721.000 win%=46.222 avg_R=0.080 t=8.774 avg_hold_d=26.519 R_per_100d=0.302
+  random  9    : trades=26635.000 win%=46.274 avg_R=0.080 t=8.680 avg_hold_d=26.612 R_per_100d=0.300
+  random 10    : trades=26602.000 win%=45.809 avg_R=0.074 t=7.567 avg_hold_d=26.696 R_per_100d=0.279
+  -> real avg_R +0.0398 vs random mean +0.0763 (range +0.0588..+0.0882); random beats real in 10/10 draws

@@ -1,0 +1,26 @@
+
+=== live-40: 2016-04-15 -> 2026-10-15, 705 trades taken, 29 entries blocked by breaker, avg invested 76% ===
+                                   portfolio  total_return%  CAGR%  vol%  sharpe  maxDD%
+    swing_pcse (live-40), honest daily marks         270.14  13.27 12.28    1.08  -24.78
+                 same, OLD look-ahead ledger         387.66  16.29  7.94    4.63   -9.92
+                              SPY buy & hold         337.47  15.09 17.43    0.90  -33.79
+                              RSP buy & hold         225.22  11.89 17.97    0.72  -39.05
+76% SPY + 24% cash (strategy's avg exposure)         217.90  11.64 13.32    0.90  -26.68
+daily correlation with SPY 0.84, beta 0.59
+calendar-year returns %:
+date      2016  2017  2018  2019  2020  2021  2022  2023  2024  2025  2026
+strategy   9.3  32.5   5.3  30.9  -1.4  20.0 -18.9  16.5  22.8  13.1  19.6
+SPY        9.3  21.7  -5.0  31.1  18.5  28.6 -18.2  26.2  24.9  17.7  14.1
+
+=== S&P PIT: 2016-04-15 -> 2026-10-16, 1382 trades taken, 100 entries blocked by breaker, avg invested 97% ===
+                                  portfolio  total_return%  CAGR%  vol%  sharpe  maxDD%
+   swing_pcse (S&P PIT), honest daily marks         342.44  15.21 15.33    1.00  -26.59
+                same, OLD look-ahead ledger         324.76  14.77  6.28    2.36  -15.37
+                             SPY buy & hold         332.63  14.97 17.43    0.89  -33.79
+                             RSP buy & hold         223.84  11.84 17.97    0.71  -39.05
+97% SPY + 3% cash (strategy's avg exposure)         318.53  14.60 16.99    0.89  -33.05
+daily correlation with SPY 0.83, beta 0.73
+calendar-year returns %:
+date      2016  2017  2018  2019  2020  2021  2022  2023  2024  2025  2026
+strategy  11.5  36.0 -10.3  23.6   8.0  21.8 -15.3  14.0  17.0   6.6  66.1
+SPY        9.3  21.7  -5.0  31.1  18.5  28.6 -18.2  26.2  24.9  17.7  12.8

@@ -1,0 +1,7 @@
+                                 book       from  taken  blocked  invested%  CAGR%  sharpe  maxDD%  SPY_CAGR%  SPY_maxDD%  matchedSPY_CAGR%  matchedSPY_sharpe  beta  corr
+                Breakout Hunter alone 2016-08-11    279       14      38.97   6.28    0.83  -17.48      15.07      -33.79              6.01               0.89  0.14  0.33
+                Swing-Structure alone 2016-04-15    460       26      87.47  12.19    0.78  -26.67      15.19      -33.79             13.35               0.90  0.69  0.72
+                           PCSE alone 2017-05-26    432        6      58.17  12.73    1.15  -17.94      14.96      -33.79              8.89               0.86  0.36  0.60
+                swing_pcse_exit alone 2016-04-15    705       29      76.41  13.27    1.08  -24.78      15.09      -33.79             11.64               0.90  0.59  0.84
+v1 book (BH + Swing-Structure + PCSE) 2016-04-15    692       10      91.86  15.29    0.94  -27.57      15.19      -33.79             14.00               0.90  0.75  0.79
+     v2 book (swing_pcse_exit + PCSE) 2016-04-15    901       14      87.40  16.68    1.17  -23.34      15.09      -33.79             13.26               0.90  0.66  0.81

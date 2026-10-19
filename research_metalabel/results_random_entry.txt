@@ -1,0 +1,26 @@
+Driftless random walk, continuous prices: P(target before stop) = 14.0/(14.0+3.0) = 82.4%, E[R] = 0
+
+real breakout entries: {'trades': 9861, 'win%': np.float64(89.50410708853057), 'avg_R': np.float64(0.0931508307448964), 'R_per_100d': np.float64(0.09110415163410607), 'avg_hold_d': np.float64(102.24652672142784)}
+  random draw  1: trades=13321.000 win%=90.571 avg_R=0.105 R_per_100d=0.102 avg_hold_d=102.660
+  random draw  2: trades=13539.000 win%=90.509 avg_R=0.105 R_per_100d=0.105 avg_hold_d=100.073
+  random draw  3: trades=13375.000 win%=90.407 avg_R=0.103 R_per_100d=0.103 avg_hold_d=100.179
+  random draw  4: trades=13370.000 win%=90.277 avg_R=0.103 R_per_100d=0.102 avg_hold_d=100.760
+  random draw  5: trades=13434.000 win%=90.271 avg_R=0.101 R_per_100d=0.100 avg_hold_d=101.769
+  random draw  6: trades=13455.000 win%=90.338 avg_R=0.102 R_per_100d=0.100 avg_hold_d=101.714
+  random draw  7: trades=13667.000 win%=90.364 avg_R=0.103 R_per_100d=0.104 avg_hold_d=98.880
+  random draw  8: trades=13527.000 win%=90.345 avg_R=0.103 R_per_100d=0.102 avg_hold_d=100.507
+  random draw  9: trades=13574.000 win%=90.423 avg_R=0.103 R_per_100d=0.104 avg_hold_d=99.543
+  random draw 10: trades=13428.000 win%=90.363 avg_R=0.103 R_per_100d=0.102 avg_hold_d=101.240
+  random draw 11: trades=13478.000 win%=90.206 avg_R=0.101 R_per_100d=0.101 avg_hold_d=100.703
+  random draw 12: trades=13429.000 win%=90.446 avg_R=0.104 R_per_100d=0.102 avg_hold_d=101.783
+  random draw 13: trades=13431.000 win%=90.537 avg_R=0.105 R_per_100d=0.103 avg_hold_d=101.455
+  random draw 14: trades=13462.000 win%=90.321 avg_R=0.102 R_per_100d=0.101 avg_hold_d=101.033
+  random draw 15: trades=13600.000 win%=90.507 avg_R=0.104 R_per_100d=0.105 avg_hold_d=99.262
+  random draw 16: trades=13474.000 win%=90.508 avg_R=0.105 R_per_100d=0.104 avg_hold_d=100.958
+  random draw 17: trades=13518.000 win%=90.243 avg_R=0.101 R_per_100d=0.101 avg_hold_d=100.330
+  random draw 18: trades=13597.000 win%=90.321 avg_R=0.103 R_per_100d=0.103 avg_hold_d=99.365
+  random draw 19: trades=13401.000 win%=90.322 avg_R=0.103 R_per_100d=0.102 avg_hold_d=100.981
+  random draw 20: trades=13478.000 win%=90.169 avg_R=0.100 R_per_100d=0.099 avg_hold_d=101.292
+
+random entries, 20 draws: avg_R mean +0.1029 (min +0.0999, max +0.1054); win% 90.4; R/100d 0.102
+real minus random: avg_R -0.0098; draws beating real: 20/20

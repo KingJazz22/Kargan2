@@ -1,0 +1,17 @@
+  2019 (train 2738, test 1039): rf_A=0.579 rf_B=0.585 xgb_A=0.584 xgb_B=0.557
+  2020 (train 3660, test 1146): rf_A=0.447 rf_B=0.503 xgb_A=0.361 xgb_B=0.507
+  2021 (train 4846, test 1065): rf_A=0.542 rf_B=0.527 xgb_A=0.556 xgb_B=0.512
+  2022 (train 5929, test 754): rf_A=0.553 rf_B=0.541 xgb_A=0.570 xgb_B=0.548
+  2023 (train 6617, test 702): rf_A=0.508 rf_B=0.577 xgb_A=0.495 xgb_B=0.562
+  2024 (train 7344, test 904): rf_A=0.611 rf_B=0.580 xgb_A=0.626 xgb_B=0.595
+  2025 (train 8302, test 801): rf_A=0.519 rf_B=0.520 xgb_A=0.524 xgb_B=0.512
+  2026 (train 9108, test 505): rf_A=0.511 rf_B=0.602 xgb_A=0.504 xgb_B=0.577
+
+model    mean AUC  filter dR       p   kept  losers skipped
+rf_A        0.534    +0.0095  0.0206   5491     190/727
+rf_B        0.554    +0.0099  0.0088   5649     178/727
+xgb_A       0.527    +0.0073  0.0682   5424     190/727
+xgb_B       0.546    +0.0060  0.0456   5569     170/727
+
+xgb_B beats rf_B AUC in 3/8 years (needs >= 6); filter dR +0.0060 vs +0.0099 -> keep rf_B
+(info) xgb_A beats rf_A AUC in 5/8 years

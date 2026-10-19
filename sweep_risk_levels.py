@@ -176,9 +176,30 @@ def build_trades():
 # throttle), no position cap (matches the current live config).
 # --------------------------------------------------------------------------
 
-def replay_shared_ledger(all_trades, risk_pct):
+def replay_shared_ledger(all_trades, risk_pct, marks=None):
+    """marks: optional {symbol: daily close Series}. With it, open positions are
+    marked to the last close strictly before each event (an entry at day D's open
+    sizes off D-1's close) and equity is recorded at every day's close, so
+    drawdown, Sharpe, sizing and the breaker see only information available at
+    the time. Without it (the original behaviour, kept so older findings
+    reproduce) open positions are valued at their FINAL pnl_pct from the moment
+    they open -- a look-ahead that understates drawdown and lets sizing use
+    future P&L (FINDINGS_RANDOM_ENTRY.md)."""
     events = []
     by_id = {}
+    mark_px = {}
+    if marks is not None:
+        for sym, s in marks.items():
+            s = s.dropna().sort_index()
+            idx = s.index.tz_localize("UTC") if s.index.tz is None else s.index.tz_convert("UTC")
+            mark_px[sym] = (idx.as_unit("ns").asi8, s.to_numpy(float))   # ns, to compare with Timestamp.value
+        first = min(to_utc(t["entry_time"]) for t in all_trades)
+        last = max(to_utc(t["exit_time"]) for t in all_trades)
+        cal_src = marks["SPY"] if "SPY" in marks else pd.concat(list(marks.values()))
+        cal = pd.DatetimeIndex(sorted(set(pd.DatetimeIndex(cal_src.index).normalize())))
+        cal = cal.tz_localize("UTC") if cal.tz is None else cal.tz_convert("UTC")
+        for d in cal[(cal >= first.normalize()) & (cal <= last)]:
+            events.append((d + pd.Timedelta(hours=20), 3, None))   # after that day's exits/entries
     for i, t in enumerate(all_trades):
         tid = f"t{i}"
         by_id[tid] = t
@@ -205,11 +226,27 @@ def replay_shared_ledger(all_trades, risk_pct):
     entries_blocked_daily = 0
     entries_taken = 0
 
-    def equity_now():
-        mtm = sum(p["notional"] * (1 + p["pnl_pct"]) for p in open_positions.values())
+    def mark_value(p, ts):
+        series = mark_px.get(p["symbol"])
+        if series is None:
+            return p["notional"]
+        k = np.searchsorted(series[0], ts.value, side="left") - 1   # last close strictly before ts
+        if k < 0 or k < p["mark_floor"]:
+            return p["notional"]                                     # no close since entry yet
+        return p["notional"] * series[1][k] / p["entry_price"]
+
+    def equity_now(ts=None):
+        if marks is None:
+            mtm = sum(p["notional"] * (1 + p["pnl_pct"]) for p in open_positions.values())
+        else:
+            mtm = sum(mark_value(p, ts) for p in open_positions.values())
         return cash + mtm
 
     for ts, _, tid in events:
+        if tid is None:                                              # daily mark
+            eq = equity_now(ts)
+            equity_curve.append((ts, eq, eq - cash))
+            continue
         t = by_id[tid]
         is_exit = tid in open_positions and t["exit_time"] == ts
         is_entry = tid not in open_positions and t["entry_time"] == ts
@@ -222,7 +259,7 @@ def replay_shared_ledger(all_trades, risk_pct):
             closed.append({"_tid": tid, "strategy_key": pos["strategy_key"], "symbol": t["symbol"],
                             "pnl_dollars": pnl_dollars, "r_multiple": r_multiple, "exit_time": ts})
         elif is_entry:
-            equity = equity_now()
+            equity = equity_now(ts)
             peak_equity = max(peak_equity, equity)
             today = ts.date()
             if daily_start_date != today:
@@ -239,7 +276,7 @@ def replay_shared_ledger(all_trades, risk_pct):
                     peak_equity, breaker_tripped_at = equity, None
                 else:
                     entries_blocked_circuit += 1
-                    equity_curve.append((ts, equity_now()))
+                    equity_curve.append((ts, equity_now(ts), np.nan))
                     continue
             else:
                 breaker_tripped_at = None
@@ -247,7 +284,7 @@ def replay_shared_ledger(all_trades, risk_pct):
                 recovery_target = None
             if daily_loss_pct >= DAILY_LOSS_LIMIT_PCT:
                 entries_blocked_daily += 1
-                equity_curve.append((ts, equity_now()))
+                equity_curve.append((ts, equity_now(ts), np.nan))
                 continue
 
             # risk throttle, recomputed off trades closed so far
@@ -269,21 +306,23 @@ def replay_shared_ledger(all_trades, risk_pct):
             risk_amount = equity * effective_risk_pct
             stop_distance = t["stop_distance"]
             if stop_distance is None or stop_distance <= 0:
-                equity_curve.append((ts, equity_now()))
+                equity_curve.append((ts, equity_now(ts), np.nan))
                 continue
             notional = min((risk_amount / stop_distance) * t["entry_price"], cash)
             if notional <= 0:
-                equity_curve.append((ts, equity_now()))
+                equity_curve.append((ts, equity_now(ts), np.nan))
                 continue
             cash -= notional
+            series = mark_px.get(t["symbol"])
             open_positions[tid] = {"notional": notional, "entry_price": t["entry_price"],
                                     "pnl_pct": t["pnl_pct"], "strategy_key": t["strategy_key"],
-                                    "risk_amount": risk_amount}
+                                    "risk_amount": risk_amount, "symbol": t["symbol"],
+                                    "mark_floor": np.searchsorted(series[0], ts.value, side="left") if series else 0}
             entries_taken += 1
 
-        equity_curve.append((ts, equity_now()))
+        equity_curve.append((ts, equity_now(ts), np.nan))
 
-    eq_df = pd.DataFrame(equity_curve, columns=["date", "equity"]).set_index("date")
+    eq_df = pd.DataFrame(equity_curve, columns=["date", "equity", "invested"]).set_index("date")
     eq_df = eq_df[~eq_df.index.duplicated(keep="last")].sort_index()
     return closed, eq_df, entries_taken, entries_blocked_circuit, entries_blocked_daily
 

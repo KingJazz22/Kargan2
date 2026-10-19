@@ -74,3 +74,25 @@ What the model had learned before COVID turned upside down in the crash.
 - **Even the best design is worth about +0.01R per trade.** That is roughly a
   12% gain on the +0.08R base edge, and it isn't proven. It is a candidate to
   shadow-log alongside the live signals, not a filter to trade on.
+
+## Follow-up: XGBoost (SPEC_XGB.md, `backtest_xgb_metalabel.py`, `research_metalabel/results_xgb.txt`)
+**XGBoost does not beat the random forest, so the shadow log keeps the RF.**
+Same walk-forward and trades as above. XGBoost 3.4.1, hyperparameters fixed
+before the run.
+
+| Model | Mean AUC | Filter Δ R/trade | p | Losers skipped |
+|---|---|---|---|---|
+| RF, base features | 0.534 | +0.0095 | 0.021 | 190/727 |
+| **RF + group features (shadow model)** | **0.554** | **+0.0099** | **0.009** | 178/727 |
+| XGBoost, base features | 0.527 | +0.0073 | 0.068 | 190/727 |
+| XGBoost + group features | 0.546 | +0.0060 | 0.046 | 170/727 |
+
+- XGBoost + group features beat the RF + group features in only 3 of 8 years,
+  short of the 6/8 bar, and had a smaller filter gain.
+- Base XGBoost scored **0.361** AUC in 2020, well below a coin flip and worse
+  than the RF's 0.447. Boosting fits the pre-COVID patterns harder, so the
+  crash flipped them harder.
+- This matches the LightGBM result. Gradient-boosted trees (LightGBM,
+  XGBoost) are not better than a random forest on about 1,000 noisy losers.
+  Averaging many deep, independent trees (RF) is the more robust choice at
+  this sample size.
