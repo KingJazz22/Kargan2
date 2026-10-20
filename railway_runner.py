@@ -27,6 +27,8 @@ from datetime import datetime, timezone
 RUNNER_TARGET = os.getenv("RUNNER_TARGET", "v1")
 if RUNNER_TARGET == "v2":
     import live_trading_v2 as lt
+elif RUNNER_TARGET == "v3":
+    import live_trading_v3 as lt  # ML flat-market long-short, own paper account (FINDINGS_ML_FLAT.md)
 elif RUNNER_TARGET == "shadow":
     import shadow_engulfing as lt
 else:
