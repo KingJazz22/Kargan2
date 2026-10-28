@@ -6,6 +6,7 @@ of v2's interface: short sells, shortability checks, closing the whole book.
 
 paper=True is hardcoded deliberately, same reasoning as broker_alpaca.py.
 """
+import functools
 import os
 import time
 
@@ -24,17 +25,27 @@ if not API_KEY or not SECRET_KEY:
         "reuse the v1/v2 accounts."
     )
 
+# alpaca-py's RESTClient builds a plain requests.Session() with no default
+# timeout -- a stalled connection can hang every call forever. See
+# broker_alpaca_v2.py's identical fix for the live incident this addresses.
+REQUEST_TIMEOUT_SECONDS = 30
+
+
+def _with_timeout(client):
+    client._session.request = functools.partial(client._session.request, timeout=REQUEST_TIMEOUT_SECONDS)
+    return client
+
 
 def trading_client():
     from alpaca.trading.client import TradingClient
 
-    return TradingClient(API_KEY, SECRET_KEY, paper=True)
+    return _with_timeout(TradingClient(API_KEY, SECRET_KEY, paper=True))
 
 
 def data_client():
     from alpaca.data.historical import StockHistoricalDataClient
 
-    return StockHistoricalDataClient(API_KEY, SECRET_KEY)
+    return _with_timeout(StockHistoricalDataClient(API_KEY, SECRET_KEY))
 
 
 def fetch_daily_bars(symbols: list[str], start: str) -> dict[str, pd.DataFrame]:

@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.railpack.com",
   "deploy": {
-    "startCommand": "python railway_runner.py"
+    "startCommand": "python -u railway_runner.py"
   }
 }

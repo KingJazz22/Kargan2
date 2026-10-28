@@ -6,6 +6,7 @@ paper account for this project, NOT the NewBOT Alpaca account.
 paper=True is hardcoded deliberately (per the decision to run paper-only).
 Switching to live trading is a conscious code change, not an env-var flip.
 """
+import functools
 import os
 import time
 
@@ -24,17 +25,30 @@ if not API_KEY or not SECRET_KEY:
         "project -- do not reuse the NewBOT account's credentials."
     )
 
+# alpaca-py's RESTClient builds a plain requests.Session() with no default
+# timeout (confirmed in alpaca.common.rest.RESTClient.__init__/_one_request) --
+# a stalled connection can hang every call forever, which live_trading.py's
+# main() can't recover from: reconcile() runs OUTSIDE main()'s try/except, so
+# a hang there freezes railway_runner.py's entire scheduler loop, silently,
+# with no error logged (seen live 2026-10-28, same bug, on the v2 account).
+REQUEST_TIMEOUT_SECONDS = 30
+
+
+def _with_timeout(client):
+    client._session.request = functools.partial(client._session.request, timeout=REQUEST_TIMEOUT_SECONDS)
+    return client
+
 
 def trading_client():
     from alpaca.trading.client import TradingClient
 
-    return TradingClient(API_KEY, SECRET_KEY, paper=True)
+    return _with_timeout(TradingClient(API_KEY, SECRET_KEY, paper=True))
 
 
 def data_client():
     from alpaca.data.historical import StockHistoricalDataClient
 
-    return StockHistoricalDataClient(API_KEY, SECRET_KEY)
+    return _with_timeout(StockHistoricalDataClient(API_KEY, SECRET_KEY))
 
 
 def _fetch_bars(symbols: list[str], timeframe, lookback_days: int) -> dict[str, pd.DataFrame]:
