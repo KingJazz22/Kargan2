@@ -14,6 +14,13 @@ so it defaults to "v1" (this file's original, unchanged behavior) everywhere
 else, including the already-running kargan2-live-trading service, which sets
 no such variable.
 
+kargan2-live-trading-v2 auto-deploys from GitHub as of 2026-10-28: its
+Watch Paths was scoped to just /railway.toml (so pushes touching any other
+file never triggered a redeploy) and its Start Command was unset (Railpack
+fell back to main.py). Both fixed in the dashboard -- Start Command is now
+"python railway_runner.py" directly, so main.py (still present, untracked)
+is no longer needed and can be deleted whenever convenient.
+
 Times below are fixed UTC and do NOT auto-adjust for US Daylight Saving Time
 -- same caveat the local Windows Task Scheduler version had. Currently set
 for EDT (UTC-4): 9:35/11:35/13:35/15:35 ET = 13:35/15:35/17:35/19:35 UTC.
