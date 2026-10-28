@@ -153,6 +153,13 @@ MTF_ENTRIES_DISABLED = True
 BREAKOUT_HUNTER_ENTRIES_DISABLED = True
 SWING_BREAKOUT_ENTRIES_DISABLED = True
 
+# Protective stop distance for positions reconcile() finds held but untracked
+# (e.g. an abandoned entry order that filled later -- see reconcile()'s
+# docstring). Their real originating strategy/entry-time ATR is unknown, so
+# this is a generic safety net, not a strategy-tuned exit: 14x is this
+# project's most-validated wide stop (live_trading_v2.py's SWING_PCSE_SL_ATR_MULT).
+RECOVERY_SL_ATR_MULT = 14.0
+
 # Circuit breaker: halt NEW entries (existing positions still get managed --
 # trails still raised, PCSE take-profits still taken) once equity draws down
 # this much from its running peak. Re-arms after circuit_breaker.COOLDOWN_DAYS
@@ -770,14 +777,62 @@ def reconcile(state, broker_positions, args):
                     del state["positions"][key]
 
     # Shares the broker holds beyond every tracked lot have no stop managed by
-    # this bot (e.g. an abandoned entry order that filled later) -- flag them loudly.
+    # this bot (e.g. an abandoned entry order that filled later) -- flag them
+    # loudly AND adopt them under a recovery lot with a fresh protective stop,
+    # rather than leaving them to ride unprotected indefinitely. The recovery
+    # lot only gets reconcile()'s own fill-detection/re-protect-on-cancel
+    # handling above (next run onward) -- not any strategy's trailing/partial-
+    # profit logic, since which strategy actually opened these is unknown.
     tracked_qty = {}
     for k, o in state["positions"].items():
         tracked_qty[k.split("|")[0]] = tracked_qty.get(k.split("|")[0], 0.0) + o["shares"]
     for symbol, p in broker_positions.items():
         untracked = p["qty"] - tracked_qty.get(symbol, 0.0)
-        if untracked > 0:
-            print(f"  !!! {symbol}: {untracked:g} shares held but not tracked by any lot (no managed stop)")
+        if untracked <= 0:
+            continue
+        print(f"  !!! {symbol}: {untracked:g} shares held but not tracked by any lot (no managed stop)")
+        if args.dry_run:
+            continue
+        key = f"{symbol}|recovered"
+        if key in state["positions"]:
+            continue  # already adopted on an earlier run
+        try:
+            hist = broker.fetch_daily_bars([symbol])[symbol]
+            atr_val = float(atr(hist["High"], hist["Low"], hist["Close"], 14).iloc[-1])
+        except Exception as e:
+            print(f"      recovery: couldn't fetch ATR for {symbol} ({e!r}) -- leaving unprotected, retry next run")
+            continue
+        if not atr_val or atr_val <= 0:
+            print(f"      recovery: no usable ATR for {symbol} -- leaving unprotected, retry next run")
+            continue
+        current_price = p.get("current_price") or p["avg_entry_price"]
+        initial_stop = p["avg_entry_price"] - RECOVERY_SL_ATR_MULT * atr_val
+        if initial_stop >= current_price:
+            print(f"      recovery: {symbol} already through its {RECOVERY_SL_ATR_MULT:g}x-ATR stop -- closing {untracked:g} sh at market")
+            fill = broker.submit_market_sell(symbol, untracked)
+            print(f"      recovery: {symbol} closed @ {fill['fill_price']:.2f}" if fill.get("filled")
+                  else f"      recovery: {symbol} market sell failed ({fill.get('error')}) -- retry next run")
+            continue
+        try:
+            stop_order_id = broker.submit_stop_sell(symbol, untracked, initial_stop)
+        except Exception as e:
+            # e.g. a resting order from whatever abandoned this position already
+            # reserves the shares (this is also why a wash-trade rejection on a
+            # fresh entry signal for the same symbol can show up in the same
+            # run -- that resting order is this orphan's real protection, just
+            # not one this bot's state knows about). Leave it flagged rather
+            # than fail the whole run; a human should reconcile this symbol
+            # directly on the broker.
+            print(f"      recovery: couldn't place a stop for {symbol} ({e!r}) -- "
+                  f"likely an existing resting order already covers it; leaving unprotected locally, check the account manually")
+            continue
+        state["positions"][key] = {
+            "entry_price": p["avg_entry_price"], "shares": untracked, "atr_at_entry": atr_val,
+            "current_stop": initial_stop, "initial_stop": initial_stop, "trail_active": False,
+            "extreme": current_price, "stop_order_id": stop_order_id, "partial_taken": False,
+        }
+        print(f"      recovery: adopted {symbol} ({untracked:g} sh @ avg {p['avg_entry_price']:.2f}) "
+              f"-- stop placed @ {initial_stop:.2f} ({RECOVERY_SL_ATR_MULT:g}x ATR)")
 
 
 def main():

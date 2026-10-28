@@ -120,11 +120,46 @@ def test_reconcile_flags_untracked_shares(lt, capsys=None):
     fb = FakeBroker()
     state = {"positions": {}, "trade_log": []}
     fb.positions["AMZN"] = 24
+    fb.set_price("AMZN", 150.0)
+    fb.set_avg_entry_price("AMZN", 150.0)
+    fb.set_daily_bars("AMZN", make_bars(60, start_price=150.0))
     buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
+    with patch.object(lt.broker, "fetch_daily_bars", side_effect=fb.fetch_daily_bars), \
+         patch.object(lt.broker, "submit_stop_sell", side_effect=fb.submit_stop_sell), \
+         patch.object(lt.broker, "submit_market_sell", side_effect=fb.submit_market_sell), \
+         contextlib.redirect_stdout(buf):
         lt.reconcile(state, fb.get_open_positions(), ARGS)
     assert "AMZN: 24 shares held but not tracked" in buf.getvalue()
-    print(f"  OK [{lt.__name__}]: untracked broker shares are flagged")
+    s = state["positions"].get("AMZN|recovered")
+    assert s is not None and s["shares"] == 24, "untracked shares must be adopted with a protective stop"
+    assert fb.orders[s["stop_order_id"]]["status"] == "open" and fb.orders[s["stop_order_id"]]["qty"] == 24
+    assert s["current_stop"] < 150.0
+    print(f"  OK [{lt.__name__}]: untracked broker shares are flagged and adopted with a fresh stop")
+
+
+def test_reconcile_recovery_closes_if_already_through_stop(lt):
+    """If price has already dropped through where the recovery stop would
+    sit, the orphaned shares are closed at market instead of placing a
+    sell-stop above/at the current price (which Alpaca would reject)."""
+    import pandas as pd
+    fb = FakeBroker()
+    state = {"positions": {}, "trade_log": []}
+    fb.positions["XOM"] = 10
+    fb.set_price("XOM", 50.0)
+    # Already down $5 from its average entry -- far more than any 14x-ATR
+    # buffer off a flat, low-volatility history (ATR ~0.2 here) could cover,
+    # so the computed recovery stop lands at/above the current price.
+    fb.set_avg_entry_price("XOM", 55.0)
+    idx = pd.date_range("2024-01-01", periods=60, freq="D", tz="UTC")
+    bars = pd.DataFrame({"Open": 55.0, "High": 55.1, "Low": 54.9, "Close": 55.0, "Volume": 1_000_000}, index=idx)
+    fb.set_daily_bars("XOM", bars)
+    with patch.object(lt.broker, "fetch_daily_bars", side_effect=fb.fetch_daily_bars), \
+         patch.object(lt.broker, "submit_stop_sell", side_effect=AssertionError("must not place an invalid stop")), \
+         patch.object(lt.broker, "submit_market_sell", side_effect=fb.submit_market_sell):
+        lt.reconcile(state, fb.get_open_positions(), ARGS)
+    assert "XOM|recovered" not in state["positions"]
+    assert fb.positions["XOM"] == 0, "must close the orphaned shares at market"
+    print(f"  OK [{lt.__name__}]: orphaned shares already through the recovery stop are closed at market")
 
 
 class FakeOrder:
@@ -207,6 +242,7 @@ if __name__ == "__main__":
         test_reconcile_replaces_cancelled_stop(lt)
         test_reconcile_drops_lot_when_shares_gone(lt)
         test_reconcile_flags_untracked_shares(lt)
+        test_reconcile_recovery_closes_if_already_through_stop(lt)
     for b in (broker_alpaca, broker_alpaca_v2):
         print(f"--- {b.__name__} ---")
         test_broker_timeout_cancels(b)

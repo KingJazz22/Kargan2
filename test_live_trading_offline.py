@@ -19,6 +19,9 @@ class FakeBroker:
         self.orders = {}  # order_id -> dict(status, symbol, qty, side, kind, stop_price, fill_price)
         self._next_id = 1
         self.positions = {}  # symbol -> total qty (sum across strategies, like real Alpaca)
+        self._last_price = {}
+        self._daily_bars = {}
+        self._avg_entry_price = {}
 
     def _new_id(self):
         oid = f"order-{self._next_id}"
@@ -29,7 +32,9 @@ class FakeBroker:
         return self.equity
 
     def get_open_positions(self):
-        return {s: {"qty": q, "avg_entry_price": 0.0} for s, q in self.positions.items() if q > 0}
+        return {s: {"qty": q, "avg_entry_price": self._avg_entry_price.get(s, 0.0),
+                    "current_price": self._last_price.get(s, 0.0)}
+                for s, q in self.positions.items() if q > 0}
 
     def submit_market_buy(self, symbol, qty, wait_fill_seconds=30):
         price = self._last_price.get(symbol, 100.0)
@@ -61,10 +66,18 @@ class FakeBroker:
             return {"status": "filled", "fill_price": o["stop_price"], "fill_qty": o["qty"]}
         return {"status": o["status"]}
 
+    def fetch_daily_bars(self, symbols, lookback_days=400):
+        return {s: self._daily_bars[s] for s in symbols if s in self._daily_bars}
+
     # test helpers, not part of the real broker_alpaca interface
     def set_price(self, symbol, price):
-        self._last_price = getattr(self, "_last_price", {})
         self._last_price[symbol] = price
+
+    def set_daily_bars(self, symbol, df):
+        self._daily_bars[symbol] = df
+
+    def set_avg_entry_price(self, symbol, price):
+        self._avg_entry_price[symbol] = price
 
     def trigger_stop_fill(self, order_id):
         self.orders[order_id]["status"] = "filled"

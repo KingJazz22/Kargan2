@@ -99,7 +99,8 @@ def get_open_positions() -> dict[str, dict]:
     client = trading_client()
     positions = {}
     for p in client.get_all_positions():
-        positions[p.symbol] = {"qty": float(p.qty), "avg_entry_price": float(p.avg_entry_price)}
+        positions[p.symbol] = {"qty": float(p.qty), "avg_entry_price": float(p.avg_entry_price),
+                                "current_price": float(p.current_price)}
     return positions
 
 
