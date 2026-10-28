@@ -100,12 +100,14 @@ from state_store_v2 import STATE_DIR, load_state, save_state
 from test_mtf_oos_symbols import OOS_US_SYMBOLS
 
 SYMBOLS = US_SYMBOLS + OOS_US_SYMBOLS  # 47-symbol IS/OOS universe both breakout strategies were validated on
-# Raised from 0.01 to 0.02 -- see live_trading.py's identical comment for the
-# full sweep_risk_levels.py / sweep_risk_levels_realistic.py reasoning (2%
-# was the best total return in both the original and survivorship-bias-
-# corrected universes, with negligible modeled risk of a serious drawdown;
-# returns fall and drawdown risk climbs sharply past 2% in both universes).
-RISK_PCT = 0.02
+# Raised from 0.02 to 0.03 -- sweep_pcse_leverage_headroom.py (2026-10-28,
+# FINDINGS_V3_PCSE_COMBINED.md's follow-up) replayed the real swing_pcse_exit
+# + PCSE book (real trades, real shared cash/concurrency, the same 15%-DD/
+# 30-day-re-arm breaker this module runs) across risk_pct=2%-10%: Sharpe
+# peaks at 3% (1.23 vs 1.17 at 2%, CAGR 19.1% vs 16.7%, maxDD -25.4% vs
+# -23.3%), then degrades past 4% (more drawdown, no more risk-adjusted
+# return). 3% is the validated peak, not a round-number guess.
+RISK_PCT = 0.03
 
 # PCSE was only ever validated on basket.US_SYMBOLS (20 symbols) -- not extended
 # here beyond what FINDINGS_CANDLE_PROB.md actually tested.
