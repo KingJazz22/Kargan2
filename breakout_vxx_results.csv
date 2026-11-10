@@ -1,0 +1,7 @@
+variant,IS_trades,IS_avg_R,IS_t,OOS_trades,OOS_avg_R,OOS_t,Combined_trades,Combined_avg_R,Combined_t,Combined_win%,Combined_PF
+long_entry,167,0.211,3.48,158,0.028,0.46,325,0.122,2.8,56.6,1.55
+long_entry_calm,159,0.225,3.65,147,-0.009,-0.14,306,0.113,2.53,55.9,1.5
+long_entry_falling,149,0.217,3.41,145,0.011,0.17,294,0.115,2.55,56.5,1.52
+long_entry_not_spiking,153,0.228,3.56,149,0.05,0.78,302,0.14,3.08,59.3,1.64
+long_entry_calm_falling,145,0.236,3.7,142,-0.007,-0.11,287,0.116,2.54,56.8,1.53
+long_entry_all3,139,0.242,3.77,139,-0.002,-0.04,278,0.12,2.62,57.6,1.57
